@@ -8,7 +8,7 @@ from pydantic import Field, model_validator
 from mcp_gitlab.core.errors import GitLabError, ToolError
 from mcp_gitlab.gitlab import Page, project_path
 from mcp_gitlab.tools import Access, Action, ActionContext, ActionParams, PageParams, Tool
-from mcp_gitlab.toolsets.common import ProjectRef, query
+from mcp_gitlab.toolsets.common import ProjectRef, query, with_csv_labels
 from mcp_gitlab.toolsets.diffs import summarize_commit, summarize_diffs
 from mcp_gitlab.toolsets.threads import NoteableRef
 
@@ -194,7 +194,7 @@ _NEXT_STEPS: dict[str, tuple[str, bool]] = {
 
 async def list_merge_requests(params: ListMergeRequestsParams, ctx: ActionContext) -> Page:
     return await ctx.gitlab.get_page(
-        f"{project_path(params.project)}/merge_requests", params=_with_csv_labels(query(params))
+        f"{project_path(params.project)}/merge_requests", params=with_csv_labels(query(params))
     )
 
 
@@ -203,14 +203,14 @@ async def get_merge_request(params: GetMergeRequestParams, ctx: ActionContext) -
 
 
 async def create_merge_request(params: CreateMergeRequestParams, ctx: ActionContext) -> Any:
-    body = _with_csv_labels(query(params, "draft"))
+    body = with_csv_labels(query(params, "draft"))
     if params.draft is not None:
         body["title"] = _with_draft_marker(params.title, params.draft)
     return await ctx.gitlab.post(f"{project_path(params.project)}/merge_requests", json_body=body)
 
 
 async def update_merge_request(params: UpdateMergeRequestParams, ctx: ActionContext) -> Any:
-    body = _with_csv_labels(params.fields("draft"))
+    body = with_csv_labels(params.fields("draft"))
     if params.draft is not None:
         title = params.title or (await ctx.gitlab.get(params.path()))["title"]
         body["title"] = _with_draft_marker(title, params.draft)
@@ -296,13 +296,6 @@ async def _merge_refusal(params: MergeParams, ctx: ActionContext, exc: GitLabErr
     )
     error = MergePendingError if waiting_helps else MergeBlockedError
     return error(f"GitLab refused to merge !{params.iid} ({status}). {next_step}", details=details)
-
-
-def _with_csv_labels(fields: dict[str, Any]) -> dict[str, Any]:
-    """GitLab takes labels as one comma-separated string."""
-    if isinstance(fields.get("labels"), list):
-        fields["labels"] = ",".join(fields["labels"])
-    return fields
 
 
 def _with_draft_marker(title: str, draft: bool) -> str:

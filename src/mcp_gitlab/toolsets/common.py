@@ -15,6 +15,7 @@ NamespaceRef = Annotated[
     Field(description="Group or user namespace, as an ID or full path such as group/subgroup."),
 ]
 Ref = Annotated[str, Field(min_length=1, description="Branch name, tag name, or commit SHA.")]
+IsoDate = Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$", description="Date as YYYY-MM-DD.")]
 Visibility = Literal["private", "internal", "public"]
 ProtectedAccess = Literal["no_access", "developer", "maintainer"]
 
@@ -24,3 +25,10 @@ ACCESS_LEVELS: dict[str, int] = {"no_access": 0, "developer": 30, "maintainer": 
 def query(params: ActionParams, *exclude: str) -> dict[str, Any]:
     """The set parameters as GitLab query/body fields, minus path parameters."""
     return params.model_dump(exclude={"project", *exclude}, exclude_none=True)
+
+
+def with_csv_labels(fields: dict[str, Any]) -> dict[str, Any]:
+    """GitLab takes label lists as one comma-separated string."""
+    if isinstance(fields.get("labels"), list):
+        fields["labels"] = ",".join(fields["labels"])
+    return fields

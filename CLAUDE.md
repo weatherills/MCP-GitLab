@@ -12,8 +12,8 @@ Personal Access Tokens (PATs).
 ## Current state
 
 - **Built:** the framework (transport, auth, GitLab client, tool framework) per PRD-00, plus the
-  toolsets for PRD-01 to PRD-03 (see the table).
-- **Not built:** PRD-04 to PRD-08. Each adds one toolset on the existing framework.
+  toolsets for PRD-01 to PRD-04 (see the table).
+- **Not built:** PRD-05 to PRD-08. Each adds one toolset on the existing framework.
 - The PRDs in `docs/prd/` are the spec ("true north"). Every PRD still reads `Status: Draft`: they
   were merged before formal review, at the owner's direction, and the owner is reviewing them now.
   Each implemented PRD carries a **Revised 2026-09-22** note listing what implementation changed.
@@ -26,13 +26,13 @@ Personal Access Tokens (PATs).
 | PRD-01 | `projects` | Projects, branches, tags | Built |
 | PRD-02 | `repository` | File tree, files, directories, commits, diffs | Built |
 | PRD-03 | `merge_requests` | MRs, discussions, approvals, merge | Built |
-| PRD-04 | `issues` | Issues, labels, milestones | Specced |
+| PRD-04 | `issues` | Issues, labels, milestones | Built |
 | PRD-05 | `pipelines` | CI/CD pipelines, jobs, variables | Specced |
 | PRD-06 | `releases` | Releases, release links | Specced |
 | PRD-07 | `search` | Global/group/project search | Specced |
 | PRD-08 | `collaboration` | Members, users, webhooks, wikis | Specced |
 
-Build order: PRD-04 to PRD-08 in sequence (the owner's instruction), each complete with tests
+Build order: PRD-05 to PRD-08 in sequence (the owner's instruction), each complete with tests
 before the next.
 
 ## Owner requirements (non-negotiable)
@@ -78,6 +78,7 @@ src/mcp_gitlab/
     projects/       # PRD-01: gitlab_projects, gitlab_branches, gitlab_tags
     repository/     # PRD-02: gitlab_repository_tree, gitlab_files, gitlab_commits
     merge_requests/ # PRD-03: gitlab_merge_requests, gitlab_mr_reviews
+    issues/         # PRD-04: gitlab_issues, gitlab_issue_notes, gitlab_labels, gitlab_milestones
 tests/              # mirrors src/; toolsets/wire.py drives actions and asserts the GitLab request
 ```
 
