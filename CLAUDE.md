@@ -105,6 +105,8 @@ across a tool's actions all fail at startup, not on first call.
 ## Conventions
 
 - Python ≥3.10, `src/` layout, package name `mcp_gitlab`.
+- **Git: work directly on `main`.** Don't create branches, local or remote — the owner's
+  instruction. Commit to `main` and push it; CI runs on every push to `main`.
 - Lint/format: `ruff` (`ruff check .`, `ruff format .`). Types: `mypy --strict` (`mypy src`).
   Tests: `pytest`. CI runs all three on Python 3.10 and 3.12 — keep them passing.
 - Per PRD-00 §6: one coarse tool per domain with an `action` discriminator
