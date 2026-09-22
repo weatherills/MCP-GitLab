@@ -191,8 +191,10 @@ from the spec's strict guidance, not an oversight.
   only the GitLab calls made while serving that request, then is dropped. It is never cached, never
   stored in an MCP session (§5), and never used for any other request, including a later request
   from the same client or session. The shared outbound connection pool holds no credentials: the
-  `Authorization` header is set on each GitLab call, cookies GitLab sets are discarded, and
-  redirects are not followed, so a token is never forwarded to another host.
+  `Authorization` header is set on each GitLab call, and cookies GitLab sets are discarded.
+  Redirects are refused, except on downloads (job logs, artifact files), where GitLab may hand
+  off to object storage or a CDN through a signed URL. A hop to any other origin is made without
+  the PAT, so a token is never forwarded to another host.
 - The token is never logged, never written to disk, and never echoed back in tool output.
 - Every GitLab API response's permission errors (`401`/`403`) pass through to the caller as MCP
   tool errors rather than being swallowed — the server enforces nothing beyond what the token

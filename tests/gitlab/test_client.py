@@ -280,3 +280,79 @@ async def test_cookies_never_carry_over_between_requests() -> None:
         "Bearer glpat-bob-abcdefghijklmn",
         "Bearer glpat-alice-abcdefghijkl",
     ]
+
+
+class RedirectingGitLab(httpx.MockTransport):
+    """GitLab that hands a download off to a CDN, recording who sent which Authorization."""
+
+    def __init__(self, location: str, *, hops: int = 1) -> None:
+        self.seen: list[tuple[str, str | None]] = []
+        self._location = location
+        self._hops = hops
+        super().__init__(self._handle)
+
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        self.seen.append((str(request.url), request.headers.get("authorization")))
+        if len(self.seen) <= self._hops:
+            return httpx.Response(302, headers={"location": self._location})
+        return httpx.Response(200, content=b"artifact bytes")
+
+
+def redirect_client(transport: httpx.MockTransport) -> GitLabClient:
+    return GitLabClient(
+        Settings(gitlab_base_url="https://gitlab.example.com/api/v4"),
+        transport=transport,
+        sleep=RecordingSleep(),
+    )
+
+
+async def test_a_download_redirect_to_another_host_never_carries_the_pat() -> None:
+    cdn = "https://cdn.example.net/artifacts/file.txt?X-Signature=abc"
+    transport = RedirectingGitLab(cdn)
+    session = redirect_client(transport).session(TOKEN)
+    data = await session.get_bytes("/projects/1/jobs/5/artifacts/file.txt", follow_redirects=True)
+    assert data == b"artifact bytes"
+    assert transport.seen == [
+        (
+            "https://gitlab.example.com/api/v4/projects/1/jobs/5/artifacts/file.txt",
+            f"Bearer {TOKEN}",
+        ),
+        (cdn, None),
+    ]
+
+
+async def test_a_download_redirect_within_gitlab_keeps_the_pat() -> None:
+    transport = RedirectingGitLab("/api/v4/projects/1/jobs/5/trace?archived=1")
+    session = redirect_client(transport).session(TOKEN)
+    await session.get_bytes("/projects/1/jobs/5/trace", follow_redirects=True)
+    assert [authorization for _, authorization in transport.seen] == [f"Bearer {TOKEN}"] * 2
+
+
+async def test_a_redirect_to_another_port_on_the_same_host_drops_the_pat() -> None:
+    transport = RedirectingGitLab("https://gitlab.example.com:8443/storage/file")
+    session = redirect_client(transport).session(TOKEN)
+    await session.get_bytes("/projects/1/jobs/5/trace", follow_redirects=True)
+    assert transport.seen[1][1] is None
+
+
+async def test_redirects_are_not_followed_unless_asked() -> None:
+    transport = RedirectingGitLab("https://cdn.example.net/file")
+    session = redirect_client(transport).session(TOKEN)
+    with pytest.raises(GitLabError, match="not followed") as caught:
+        await session.get("/projects/1")
+    assert caught.value.status == 302
+    assert len(transport.seen) == 1
+
+
+async def test_redirect_chains_are_bounded() -> None:
+    transport = RedirectingGitLab("https://cdn.example.net/loop", hops=10)
+    session = redirect_client(transport).session(TOKEN)
+    with pytest.raises(GitLabError, match="too many times"):
+        await session.get_bytes("/projects/1/jobs/5/trace", follow_redirects=True)
+    assert len(transport.seen) == 4  # the request plus three hops
+
+
+async def test_not_modified_is_still_a_success() -> None:
+    stub = GitLabStub()
+    stub.add("POST", "/projects/1/star", StubResponse(status=304))
+    assert await make_client(stub).session(TOKEN).post("/projects/1/star") is None

@@ -12,8 +12,8 @@ Personal Access Tokens (PATs).
 ## Current state
 
 - **Built:** the framework (transport, auth, GitLab client, tool framework) per PRD-00, plus the
-  toolsets for PRD-01 to PRD-04 (see the table).
-- **Not built:** PRD-05 to PRD-08. Each adds one toolset on the existing framework.
+  toolsets for PRD-01 to PRD-05 (see the table).
+- **Not built:** PRD-06 to PRD-08. Each adds one toolset on the existing framework.
 - The PRDs in `docs/prd/` are the spec ("true north"). Every PRD still reads `Status: Draft`: they
   were merged before formal review, at the owner's direction, and the owner is reviewing them now.
   Each implemented PRD carries a **Revised 2026-09-22** note listing what implementation changed.
@@ -27,12 +27,12 @@ Personal Access Tokens (PATs).
 | PRD-02 | `repository` | File tree, files, directories, commits, diffs | Built |
 | PRD-03 | `merge_requests` | MRs, discussions, approvals, merge | Built |
 | PRD-04 | `issues` | Issues, labels, milestones | Built |
-| PRD-05 | `pipelines` | CI/CD pipelines, jobs, variables | Specced |
+| PRD-05 | `pipelines` | CI/CD pipelines, jobs, variables | Built |
 | PRD-06 | `releases` | Releases, release links | Specced |
 | PRD-07 | `search` | Global/group/project search | Specced |
 | PRD-08 | `collaboration` | Members, users, webhooks, wikis | Specced |
 
-Build order: PRD-05 to PRD-08 in sequence (the owner's instruction), each complete with tests
+Build order: PRD-06 to PRD-08 in sequence (the owner's instruction), each complete with tests
 before the next.
 
 ## Owner requirements (non-negotiable)
@@ -79,6 +79,7 @@ src/mcp_gitlab/
     repository/     # PRD-02: gitlab_repository_tree, gitlab_files, gitlab_commits
     merge_requests/ # PRD-03: gitlab_merge_requests, gitlab_mr_reviews
     issues/         # PRD-04: gitlab_issues, gitlab_issue_notes, gitlab_labels, gitlab_milestones
+    pipelines/      # PRD-05: gitlab_pipelines, gitlab_jobs, gitlab_ci_variables
 tests/              # mirrors src/; toolsets/wire.py drives actions and asserts the GitLab request
 ```
 
@@ -95,7 +96,10 @@ the handler runs with `ctx.gitlab`, a `GitLabSession` bound to that request's PA
 2. Per action, declare a params model (subclass `ActionParams`, or `PageParams` for lists; field
    descriptions become the tool schema) and an `async def handler(params, ctx: ActionContext)`.
    Call GitLab only through `ctx.gitlab` (`get`, `get_page`, `get_bytes`, `post`, `put`, `delete`),
-   and build paths with `project_path()` / `encode_segment()`.
+   and build paths with `project_path()` / `encode_segment()` (`encode_wildcard_path()` for
+   routes that take literal slashes, such as artifact paths). Pass `follow_redirects=True` to
+   `get_bytes` only for downloads GitLab may hand off to object storage; the PAT never follows a
+   redirect to another origin.
 3. Declare `Action(name, description, Params, handler, Access.READ | Access.WRITE,
    destructive=True?)`, group actions into a `Tool`, and the tools into a `Toolset` in the package's
    `__init__.py`. Add the toolset to `TOOLSETS` in `toolsets/__init__.py`.

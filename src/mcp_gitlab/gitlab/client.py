@@ -36,6 +36,8 @@ Sleep = Callable[[float], Awaitable[None]]
 
 _MESSAGE_KEYS = ("message", "error_description", "error")
 _MAX_ERROR_TEXT = 2000
+_REDIRECTS = frozenset({301, 302, 303, 307, 308})
+_MAX_REDIRECTS = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +71,7 @@ class GitLabClient:
         sleep: Sleep = anyio.sleep,
     ) -> None:
         self._base_url = str(settings.gitlab_base_url).rstrip("/")
+        self._origin = httpx.URL(self._base_url)
         self._max_response_bytes = settings.gitlab_max_response_bytes
         self._retry = retry or RetryPolicy(max_retries=settings.gitlab_max_retries)
         self._sleep = sleep
@@ -96,7 +99,9 @@ class GitLabClient:
         params: Params | None = None,
         json_body: Any = None,
         max_bytes: int | None = None,
+        follow_redirects: bool = False,
     ) -> GitLabResponse:
+        """One GitLab call with retries. Redirects are followed only when asked (downloads)."""
         method = method.upper()
         path = path if path.startswith("/") else f"/{path}"
         limit = max_bytes or self._max_response_bytes
@@ -105,7 +110,9 @@ class GitLabClient:
             attempt = status_retries + network_retries + 1
             started = time.perf_counter()
             try:
-                response = await self._send(method, path, token, params, json_body, limit)
+                response = await self._send(
+                    method, path, token, params, json_body, limit, follow_redirects
+                )
             except httpx.TransportError as exc:
                 self._log(method, path, started, attempt, status=None, error=type(exc).__name__)
                 delay = self._retry.delay_after_transport_error(method, exc, network_retries)
@@ -125,6 +132,12 @@ class GitLabClient:
                 status=response.status,
                 gitlab_request_id=response.headers.get("x-request-id"),
             )
+            if response.status in _REDIRECTS:
+                raise GitLabError(
+                    f"GitLab redirected {method} {path}"
+                    + (" too many times." if follow_redirects else "; it was not followed."),
+                    status=response.status,
+                )
             if response.status < 400:
                 return response
             delay = self._retry.delay_after_status(
@@ -143,6 +156,7 @@ class GitLabClient:
         params: Params | None,
         json_body: Any,
         max_bytes: int,
+        follow_redirects: bool = False,
     ) -> GitLabResponse:
         request = self._http.build_request(
             method,
@@ -151,19 +165,46 @@ class GitLabClient:
             json=json_body,
             headers={"Authorization": f"Bearer {token}"},
         )
-        response = await self._http.send(request, stream=True)
-        try:
-            declared = response.headers.get("content-length", "")
-            if declared.isdigit() and int(declared) > max_bytes:
-                raise _too_large(method, path, max_bytes)
-            body = bytearray()
-            async for chunk in response.aiter_bytes():
-                body.extend(chunk)
-                if len(body) > max_bytes:
+        for hop in range(_MAX_REDIRECTS + 1):
+            response = await self._http.send(request, stream=True)
+            try:
+                location = response.headers.get("location")
+                if (
+                    follow_redirects
+                    and method == "GET"
+                    and response.status_code in _REDIRECTS
+                    and location
+                    and hop < _MAX_REDIRECTS
+                ):
+                    request = self._redirected(request.url.join(location), token)
+                    continue
+                declared = response.headers.get("content-length", "")
+                if declared.isdigit() and int(declared) > max_bytes:
                     raise _too_large(method, path, max_bytes)
-            return GitLabResponse(response.status_code, response.headers, bytes(body))
-        finally:
-            await response.aclose()
+                body = bytearray()
+                async for chunk in response.aiter_bytes():
+                    body.extend(chunk)
+                    if len(body) > max_bytes:
+                        raise _too_large(method, path, max_bytes)
+                return GitLabResponse(response.status_code, response.headers, bytes(body))
+            finally:
+                await response.aclose()
+        raise AssertionError("unreachable: the last hop always returns")
+
+    def _redirected(self, target: httpx.URL, token: str) -> httpx.Request:
+        """Follow a download redirect. The PAT goes only to GitLab's own origin, never elsewhere:
+        GitLab sends large downloads to object storage or a CDN through signed URLs that carry
+        their own authorization."""
+        same_origin = (target.scheme, target.host, target.port) == (
+            self._origin.scheme,
+            self._origin.host,
+            self._origin.port,
+        )
+        log_event(
+            logger, logging.INFO, "gitlab_redirect", to_host=target.host, with_token=same_origin
+        )
+        headers = {"Authorization": f"Bearer {token}"} if same_origin else {}
+        return self._http.build_request("GET", target, headers=headers)
 
     def _log(self, method: str, path: str, started: float, attempt: int, **fields: Any) -> None:
         log_event(
@@ -198,9 +239,24 @@ class GitLabSession:
         return Page(items=items, info=response.page_info)
 
     async def get_bytes(
-        self, path: str, *, params: Params | None = None, max_bytes: int | None = None
+        self,
+        path: str,
+        *,
+        params: Params | None = None,
+        max_bytes: int | None = None,
+        follow_redirects: bool = False,
     ) -> bytes:
-        return (await self._request("GET", path, params=params, max_bytes=max_bytes)).content
+        """Raw bytes. follow_redirects lets GitLab hand a download off to object storage or a
+        CDN; the PAT is only ever sent to GitLab's own origin."""
+        response = await self.client.request(
+            "GET",
+            path,
+            token=self.token,
+            params=params,
+            max_bytes=max_bytes,
+            follow_redirects=follow_redirects,
+        )
+        return response.content
 
     async def post(self, path: str, *, json_body: Any = None, params: Params | None = None) -> Any:
         return (await self._request("POST", path, params=params, json_body=json_body)).json()

@@ -10,6 +10,18 @@ def encode_segment(value: str) -> str:
     return quote(value, safe="")
 
 
+def encode_wildcard_path(value: str) -> str:
+    """Encode a multi-segment path for a GitLab wildcard route (`*artifact_path`), keeping "/".
+
+    Wildcard routes take literal slashes, so each segment is encoded on its own. "." and ".."
+    segments are refused: a URL resolves them, which could step outside the intended route.
+    """
+    segments = value.strip("/").split("/")
+    if not value.strip("/") or any(segment in ("", ".", "..") for segment in segments):
+        raise ValueError(f"'{value}' is not a valid relative path.")
+    return "/".join(quote(segment, safe="") for segment in segments)
+
+
 def project_path(project: int | str) -> str:
     """`/projects/:id` for a numeric ID or a URL-encoded `namespace/project` path."""
     if isinstance(project, int):

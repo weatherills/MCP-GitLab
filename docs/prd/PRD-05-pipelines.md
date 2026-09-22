@@ -2,6 +2,11 @@
 
 **Status:** Draft · **Toolset name:** `pipelines` · **Depends on:** PRD-00, PRD-01
 
+> **Revised 2026-09-22 (still Draft, now implemented).** `list_artifacts` uses GitLab's
+> `/artifacts/tree` (18.8+) and falls back to the job's archive metadata, because the plain
+> `/artifacts` endpoint downloads the whole archive. Variable values are hidden in every response,
+> not only in `list`. `update` can keep a value without it passing through the model.
+
 ## 1. Overview
 
 Covers triggering and inspecting CI/CD pipelines and their jobs, plus project-level CI/CD
@@ -31,24 +36,27 @@ failure logs, and retry/cancel runs.
 |---|---|---|
 | `list` | `GET /projects/:id/pipelines/:pipeline_id/jobs` | |
 | `get` | `GET /projects/:id/jobs/:job_id` | |
-| `get_log` | `GET /projects/:id/jobs/:job_id/trace` | Plain-text log; size-limited/tail-able per §4 |
+| `get_log` | `GET /projects/:id/jobs/:job_id/trace` | Plain-text log: the last `tail_lines` (500) by default, `offset` pages from a line, `full` returns everything; color codes, section markers, and progress redraws are removed |
 | `retry` / `cancel` / `play` | `POST /projects/:id/jobs/:job_id/retry`\|`/cancel`\|`/play` | `play` starts a manual job |
-| `list_artifacts` | `GET /projects/:id/jobs/:job_id/artifacts` metadata | |
-| `get_artifact_file` | `GET /projects/:id/jobs/:job_id/artifacts/:artifact_path` | One file from the archive, not the whole archive |
+| `list_artifacts` | `GET /projects/:id/jobs/:job_id/artifacts/tree` | Files and directories inside the archive, with `path` and `recursive` (GitLab 18.8+). On older GitLab: the job's archive metadata from `GET /jobs/:job_id`. (`GET .../artifacts`, named in earlier drafts, downloads the whole archive) |
+| `get_artifact_file` | `GET /projects/:id/jobs/:job_id/artifacts/*artifact_path` | One file from the archive, not the whole archive; capped by `GITLAB_MCP_MAX_FILE_BYTES`; `..` segments refused |
 
 ### `gitlab_ci_variables`
 | Action | GitLab endpoint | Notes |
 |---|---|---|
 | `list` | `GET /projects/:id/variables` | Values redacted by default — see §4 |
 | `get` | `GET /projects/:id/variables/:key` | Requires an explicit `reveal_value: true` to return the actual value |
-| `create` / `update` / `delete` | `POST`/`PUT`/`DELETE /projects/:id/variables` | `key`, `value`, `protected`, `masked`, `environment_scope` |
+| `create` / `update` / `delete` | `POST`/`PUT`/`DELETE /projects/:id/variables` | `key`, `value`, `protected`, `masked`, `environment_scope`, plus `variable_type` and `description`. Responses hide the value. `update` without `value` keeps the current one: the server reads it and sends it back, and it never reaches the caller. `environment_scope` picks the variable (`filter[environment_scope]`) when several share a key |
 
 ## 4. Non-Functional Requirements
 
 - **Job logs can be very large.** `get_log` supports an `offset`/`tail_lines` parameter (default:
   last ~500 lines) rather than returning a potentially multi-MB trace in full every time, matching
   PRD-00 §10's large-payload discipline; a `full: true` override is available for when the whole
-  log is genuinely needed.
+  log is genuinely needed. The server still downloads the whole log, up to
+  `GITLAB_MAX_RESPONSE_BYTES`, because GitLab's trace endpoint has no range parameter.
+- **Downloads may redirect.** GitLab can hand logs and artifact files off to object storage or a
+  CDN. Those redirects are followed without the PAT on any other origin (PRD-00 §7.2).
 - **Artifacts are fetched per-file, never as a bulk archive download** — `list_artifacts` returns
   the file listing/metadata, `get_artifact_file` fetches one file. Downloading the whole artifacts
   zip is out of scope (bulk binary transfer, same reasoning as repository archive downloads in
