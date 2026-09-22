@@ -2,6 +2,11 @@
 
 **Status:** Draft · **Toolset name:** `releases` · **Depends on:** PRD-00, PRD-01 (tags)
 
+> **Revised 2026-09-22 (still Draft, now implemented).** Built as specified. The tag parameter is
+> named `tag`, as in PRD-01's `gitlab_tags`. `create` can also create the tag (`ref`,
+> `tag_message`) and set `milestones`. Asset links are managed only through
+> `gitlab_release_links`.
+
 ## 1. Overview
 
 Covers GitLab Releases, which sit on top of tags (PRD-01) and add release notes, metadata, and
@@ -21,7 +26,7 @@ downloadable/linked assets. The smallest of the functional PRDs.
 | `get` | `GET /projects/:id/releases/:tag_name` | |
 | `create` | `POST /projects/:id/releases` | `tag_name` (existing or newly created — can reference PRD-01 tag creation), `name`, `description` (release notes), `released_at` |
 | `update` | `PUT /projects/:id/releases/:tag_name` | |
-| `delete` | `DELETE /projects/:id/releases/:tag_name` | Deletes the release only, not the underlying tag — confirm this distinction in tool description so callers don't expect the tag to disappear |
+| `delete` | `DELETE /projects/:id/releases/:tag_name` | Deletes the release only, not the underlying tag — confirm this distinction in tool description so callers don't expect the tag to disappear. The response also says `tag_kept: true` |
 
 ### `gitlab_release_links`
 | Action | GitLab endpoint | Notes |
