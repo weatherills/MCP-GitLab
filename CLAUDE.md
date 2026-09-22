@@ -12,8 +12,8 @@ Personal Access Tokens (PATs).
 ## Current state
 
 - **Built:** the framework (transport, auth, GitLab client, tool framework) per PRD-00, plus the
-  toolsets for PRD-01 to PRD-07 (see the table).
-- **Not built:** PRD-08. It adds one toolset on the existing framework.
+  toolsets for PRD-01 to PRD-08 (see the table). What remains is the owner's review of the PRDs
+  and their open questions.
 - The PRDs in `docs/prd/` are the spec ("true north"). Every PRD still reads `Status: Draft`: they
   were merged before formal review, at the owner's direction, and the owner is reviewing them now.
   Each implemented PRD carries a **Revised 2026-09-22** note listing what implementation changed.
@@ -30,10 +30,7 @@ Personal Access Tokens (PATs).
 | PRD-05 | `pipelines` | CI/CD pipelines, jobs, variables | Built |
 | PRD-06 | `releases` | Releases, release links | Built |
 | PRD-07 | `search` | Global/group/project search | Built |
-| PRD-08 | `collaboration` | Members, users, webhooks, wikis | Specced |
-
-Build order: PRD-08 next (the owner's instruction), complete with tests
-before the next.
+| PRD-08 | `collaboration` | Members, users, webhooks, wikis | Built |
 
 ## Owner requirements (non-negotiable)
 
@@ -71,7 +68,8 @@ src/mcp_gitlab/
                     #   /mcp behind the 401 PAT gate, /healthz
   toolsets/
     __init__.py     # TOOLSETS — register each new toolset here
-    common.py       # shared param types: ProjectRef, NamespaceRef, Ref, access levels, query()
+    common.py       # shared param types (ProjectRef, NamespaceRef, Ref, access levels), query(),
+                    #   with_hint() to add advice to a GitLab error
     content.py      # bytes to text-or-base64, and the file-too-large error
     diffs.py        # changed-file summaries (PRD-00 §10 large-payload discipline)
     threads.py      # discussions and notes, shared by merge requests and issues
@@ -82,6 +80,7 @@ src/mcp_gitlab/
     pipelines/      # PRD-05: gitlab_pipelines, gitlab_jobs, gitlab_ci_variables
     releases/       # PRD-06: gitlab_releases, gitlab_release_links
     search/         # PRD-07: gitlab_search
+    collaboration/  # PRD-08: gitlab_members, gitlab_users, gitlab_wikis, gitlab_webhooks
 tests/              # mirrors src/; toolsets/wire.py drives actions and asserts the GitLab request
 ```
 
@@ -91,17 +90,17 @@ How one tool call flows: `transport/http.py` rejects a request without a PAT (`4
 the handler runs with `ctx.gitlab`, a `GitLabSession` bound to that request's PAT → the result or a
 `ToolError` goes back as structured content.
 
-## Adding a toolset (PRD-03 to PRD-08)
+## Adding a toolset
 
 1. Create `src/mcp_gitlab/toolsets/<toolset>/`, one module per tool, following
    `toolsets/repository/tree.py` (smallest) or `toolsets/projects/branches.py` (typical).
 2. Per action, declare a params model (subclass `ActionParams`, or `PageParams` for lists; field
    descriptions become the tool schema) and an `async def handler(params, ctx: ActionContext)`.
    Call GitLab only through `ctx.gitlab` (`get`, `get_page`, `get_bytes`, `post`, `put`, `delete`),
-   and build paths with `project_path()` / `encode_segment()` (`encode_wildcard_path()` for
-   routes that take literal slashes, such as artifact paths). Pass `follow_redirects=True` to
-   `get_bytes` only for downloads GitLab may hand off to object storage; the PAT never follows a
-   redirect to another origin.
+   and build paths with `project_path()`, `group_path()`, and `encode_segment()`
+   (`encode_wildcard_path()` for routes that take literal slashes, such as artifact paths). Pass
+   `follow_redirects=True` to `get_bytes` only for downloads GitLab may hand off to object
+   storage; the PAT never follows a redirect to another origin.
 3. Declare `Action(name, description, Params, handler, Access.READ | Access.WRITE,
    destructive=True?)`, group actions into a `Tool`, and the tools into a `Toolset` in the package's
    `__init__.py`. Add the toolset to `TOOLSETS` in `toolsets/__init__.py`.
@@ -152,6 +151,8 @@ Recorded in the PRDs' revision notes; summarized here so they aren't re-litigate
 - **File content is text by default**, base64 only for non-UTF-8 content (PRD-02 §4).
 - **`create_directory`** commits `<dir>/.gitkeep`, since Git has no empty directories (PRD-02).
 - **Tags carry no release notes** — the Tags API has no such field (PRD-01).
+- **Wiki `update` keeps the page's format:** GitLab resets an omitted `format` to markdown, so the
+  tool reads the page's current format first (PRD-08).
 - **Not built:** PRD-00 §10's per-caller outbound rate limit (needs shared state; PRD-00 §13 Q4).
 
 ## Running things

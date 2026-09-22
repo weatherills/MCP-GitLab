@@ -6,9 +6,21 @@ HTTPS Gitlab MCP server that can connect to and work with non-enterprise Gitlab 
 - **Transport:** MCP Streamable HTTP at `/mcp` (stateless by default), health check at `/healthz`.
 - **Auth:** a shared server. Every request carries its caller's own GitLab PAT, used for that
   request only; the server holds no token of its own.
-- **Tools:** `projects` (projects, branches, tags) and `repository` (tree, files and directories,
-  commits), read and write. The remaining toolsets are specced in [`docs/prd/`](docs/prd/) but not
-  built yet.
+- **Tools:** 22 tools in eight toolsets, read and write, one per PRD in [`docs/prd/`](docs/prd/):
+
+  | Toolset | Tools |
+  |---|---|
+  | `projects` | `gitlab_projects`, `gitlab_branches`, `gitlab_tags` |
+  | `repository` | `gitlab_repository_tree`, `gitlab_files`, `gitlab_commits` |
+  | `merge_requests` | `gitlab_merge_requests`, `gitlab_mr_reviews` |
+  | `issues` | `gitlab_issues`, `gitlab_issue_notes`, `gitlab_labels`, `gitlab_milestones` |
+  | `pipelines` | `gitlab_pipelines`, `gitlab_jobs`, `gitlab_ci_variables` |
+  | `releases` | `gitlab_releases`, `gitlab_release_links` |
+  | `search` | `gitlab_search` |
+  | `collaboration` | `gitlab_members`, `gitlab_users`, `gitlab_wikis`, `gitlab_webhooks` |
+
+  Each tool takes an `action` argument (for example `gitlab_branches` with `action: "create"`).
+  Every toolset is on by default.
 
 See [`CLAUDE.md`](CLAUDE.md) for the architecture, conventions, and how to add a toolset.
 
@@ -32,12 +44,14 @@ claude mcp add --transport http gitlab https://mcp.example.com/mcp \
 ```
 
 GitLab's own `PRIVATE-TOKEN: <PAT>` header works too. A PAT with the `api` scope sees every action; a
-`read_api` PAT sees read actions only. Optional headers:
+`read_api` PAT sees read actions only, and a `read_user` PAT sees only `gitlab_users`. Optional
+headers:
 
 - `X-MCP-Toolsets: projects` — use a subset of the toolsets the server allows.
 - `X-MCP-Readonly: true` — hide and refuse every write action for this client.
 
-Destructive actions (deleting a project or branch) also need `confirm: true` in the tool call.
+Destructive actions also need `confirm: true` in the tool call: deleting a project, branch,
+issue, or pipeline, merging a merge request, and changing or removing a project member.
 
 ## Deploying
 

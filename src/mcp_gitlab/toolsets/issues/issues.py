@@ -7,7 +7,7 @@ from pydantic import Field, model_validator
 from mcp_gitlab.core.errors import GitLabForbiddenError
 from mcp_gitlab.gitlab import Page, encode_segment, project_path
 from mcp_gitlab.tools import Access, Action, ActionContext, ActionParams, PageParams, Tool
-from mcp_gitlab.toolsets.common import IsoDate, ProjectRef, query, with_csv_labels
+from mcp_gitlab.toolsets.common import IsoDate, ProjectRef, query, with_csv_labels, with_hint
 from mcp_gitlab.toolsets.threads import NoteableRef
 
 IssueIid = Annotated[
@@ -146,9 +146,7 @@ async def delete_issue(params: IssueRef, ctx: ActionContext) -> Any:
             "only issues they authored (GitLab 18.10 and later). Consider close instead, which "
             "needs fewer permissions."
         )
-        raise GitLabForbiddenError(
-            f"{exc.message} {hint}", status=exc.status, details={**exc.details, "hint": hint}
-        ) from exc
+        raise with_hint(exc, hint) from exc
     return {"deleted": params.iid}
 
 

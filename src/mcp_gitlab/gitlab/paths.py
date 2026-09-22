@@ -31,3 +31,14 @@ def project_path(project: int | str) -> str:
     if project.isdigit():
         return f"/projects/{int(project)}"
     return f"/projects/{encode_segment(project.strip())}"
+
+
+def group_path(group: int | str) -> str:
+    """`/groups/:id` for a numeric ID or a URL-encoded `parent/child` path."""
+    if isinstance(group, int):
+        if group < 1:
+            raise ValueError("A GitLab group ID must be a positive integer.")
+        return f"/groups/{group}"
+    if group.isdigit():
+        return f"/groups/{int(group)}"
+    return f"/groups/{encode_segment(group.strip())}"

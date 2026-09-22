@@ -1,6 +1,11 @@
 import pytest
 
-from mcp_gitlab.gitlab.paths import encode_segment, encode_wildcard_path, project_path
+from mcp_gitlab.gitlab.paths import (
+    encode_segment,
+    encode_wildcard_path,
+    group_path,
+    project_path,
+)
 
 
 def test_encode_segment_encodes_slashes() -> None:
@@ -27,6 +32,19 @@ def test_project_path(project: int | str, expected: str) -> None:
 def test_project_path_rejects_non_positive_ids() -> None:
     with pytest.raises(ValueError):
         project_path(0)
+
+
+@pytest.mark.parametrize(
+    ("group", "expected"),
+    [(7, "/groups/7"), ("7", "/groups/7"), ("parent/child", "/groups/parent%2Fchild")],
+)
+def test_group_path(group: int | str, expected: str) -> None:
+    assert group_path(group) == expected
+
+
+def test_group_path_rejects_non_positive_ids() -> None:
+    with pytest.raises(ValueError):
+        group_path(0)
 
 
 def test_wildcard_paths_keep_their_slashes() -> None:

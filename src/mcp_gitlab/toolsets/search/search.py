@@ -10,7 +10,7 @@ from typing import Any, ClassVar, Literal
 from pydantic import Field, model_validator
 
 from mcp_gitlab.core.errors import GitLabBadRequestError, GitLabForbiddenError, ToolError
-from mcp_gitlab.gitlab import Page, encode_segment, project_path
+from mcp_gitlab.gitlab import Page, group_path, project_path
 from mcp_gitlab.tools import Access, Action, ActionContext, PageParams, Tool
 from mcp_gitlab.toolsets.common import NamespaceRef, ProjectRef
 
@@ -165,9 +165,7 @@ async def search_global(params: GlobalSearchParams, ctx: ActionContext) -> Any:
 
 
 async def search_group(params: GroupSearchParams, ctx: ActionContext) -> Any:
-    group = params.group
-    path = f"/groups/{group if isinstance(group, int) else encode_segment(group)}"
-    return await _search(f"{path}/search", params, ctx, cross_project=True)
+    return await _search(f"{group_path(params.group)}/search", params, ctx, cross_project=True)
 
 
 async def search_project(params: ProjectSearchParams, ctx: ActionContext) -> Any:

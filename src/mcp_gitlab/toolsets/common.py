@@ -4,6 +4,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
+from mcp_gitlab.core.errors import GitLabError
 from mcp_gitlab.tools import ActionParams
 
 ProjectRef = Annotated[
@@ -32,3 +33,10 @@ def with_csv_labels(fields: dict[str, Any]) -> dict[str, Any]:
     if isinstance(fields.get("labels"), list):
         fields["labels"] = ",".join(fields["labels"])
     return fields
+
+
+def with_hint(error: GitLabError, hint: str) -> GitLabError:
+    """The same GitLab error, with advice on what to do next added to its message."""
+    return type(error)(
+        f"{error.message} {hint}", status=error.status, details={**error.details, "hint": hint}
+    )

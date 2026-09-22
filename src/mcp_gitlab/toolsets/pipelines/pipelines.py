@@ -7,7 +7,7 @@ from pydantic import Field
 from mcp_gitlab.core.errors import GitLabForbiddenError
 from mcp_gitlab.gitlab import Page, project_path
 from mcp_gitlab.tools import Access, Action, ActionContext, ActionParams, PageParams, Tool
-from mcp_gitlab.toolsets.common import ProjectRef, Ref, query
+from mcp_gitlab.toolsets.common import ProjectRef, Ref, query, with_hint
 
 PipelineId = Annotated[int, Field(ge=1, description="Pipeline ID.")]
 # GitLab's own status values, passed through unchanged (PRD-05 section 4).
@@ -94,9 +94,7 @@ async def delete_pipeline(params: PipelineParams, ctx: ActionContext) -> Any:
         await ctx.gitlab.delete(_pipeline_path(params))
     except GitLabForbiddenError as exc:
         hint = "Deleting a pipeline needs the Owner role on the project."
-        raise GitLabForbiddenError(
-            f"{exc.message} {hint}", status=exc.status, details={**exc.details, "hint": hint}
-        ) from exc
+        raise with_hint(exc, hint) from exc
     return {"deleted": params.pipeline_id}
 
 

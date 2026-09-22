@@ -6,7 +6,8 @@
 > **shared** resource, so every request carries its caller's own PAT, used for that request and no
 > other; and it is **read-write**, able to create repositories, branches, directories, and files.
 > §2, §4, §5, §6, §7.2, §8–§11, and §13 are updated to match; the server-side `GITLAB_TOKEN`
-> fallback is removed.
+> fallback is removed. With all eight toolsets built, §6 and §8 now set the default selection:
+> every toolset.
 
 ## 1. Overview
 
@@ -156,8 +157,9 @@ directly, since it's the most-deployed precedent at this scale (96 tools across 
   several hundred, and each functional PRD's tool list should be read in that spirit — a proposed
   tool count, not a mandate to declare that many separate MCP tool schemas.
 - Toolset selection is configurable two ways, mirroring GitHub's remote server:
-  - **Env var** at deploy time: `GITLAB_MCP_TOOLSETS=repository,merge_requests,issues` (default: a
-    sensible core set — see §8).
+  - **Env var** at deploy time: `GITLAB_MCP_TOOLSETS=repository,merge_requests,issues` (default:
+    every toolset. Their 22 tools take about 76 KB of tool definitions in `tools/list`, so a
+    deployment, or a client with the header below, can narrow the set to save model context).
   - **Per-request header** on the remote HTTP server: `X-MCP-Toolsets`, so one deployment can
     serve different tool subsets to different clients without a redeploy. The header selects
     within the deployment's allow-list and can never enable a toolset the deployment excludes;
@@ -235,7 +237,7 @@ but it is not a v1 requirement.
 | `GITLAB_TIMEOUT_SECONDS` | No | `30` | Timeout for each GitLab call |
 | `GITLAB_MAX_RETRIES` | No | `3` | Retry budget for `429`/`5xx` responses (§10) |
 | `GITLAB_MAX_RESPONSE_BYTES` | No | 10 MiB | Largest GitLab response body the server will read (§10) |
-| `GITLAB_MCP_TOOLSETS` | No | each toolset's default (§6) | Comma-separated toolset allow-list |
+| `GITLAB_MCP_TOOLSETS` | No | every toolset (§6) | Comma-separated toolset allow-list |
 | `GITLAB_MCP_READ_ONLY` | No | `false` | Hide and refuse all mutating actions (§6) |
 | `GITLAB_MCP_MAX_FILE_BYTES` | No | 1 MiB | Largest file content returned by file reads (PRD-02 §4) |
 | `MCP_STATELESS_HTTP` | No | `true` | Stateless Streamable HTTP; `false` enables sessions (§5) |

@@ -8,6 +8,7 @@ from mcp_gitlab.core.errors import GitLabForbiddenError, GitLabNotFoundError, To
 from mcp_gitlab.gitlab import Page
 from mcp_gitlab.tools import Access, Action, ActionContext, PageParams, Tool
 from mcp_gitlab.toolsets import threads
+from mcp_gitlab.toolsets.common import with_hint
 from mcp_gitlab.toolsets.merge_requests.merge_requests import MergeRequestRef
 
 
@@ -122,9 +123,7 @@ async def list_approval_rules(params: ApprovalRulesParams, ctx: ActionContext) -
             "Approval rules need GitLab Premium or Ultimate, so this fails on GitLab Free; "
             "list_approvals shows who approved on every tier."
         )
-        raise type(exc)(
-            f"{exc.message} {hint}", status=exc.status, details={**exc.details, "hint": hint}
-        ) from exc
+        raise with_hint(exc, hint) from exc
 
 
 async def _diff_position(params: CreateDiscussion, ctx: ActionContext) -> dict[str, Any]:

@@ -2,6 +2,7 @@
 
 from mcp_gitlab.tools import Toolset
 from mcp_gitlab.toolsets import (
+    collaboration,
     issues,
     merge_requests,
     pipelines,
@@ -19,4 +20,5 @@ TOOLSETS: tuple[Toolset, ...] = (
     pipelines.TOOLSET,
     releases.TOOLSET,
     search.TOOLSET,
+    collaboration.TOOLSET,
 )
