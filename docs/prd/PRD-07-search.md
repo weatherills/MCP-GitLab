@@ -2,6 +2,11 @@
 
 **Status:** Draft · **Toolset name:** `search` · **Depends on:** PRD-00; results commonly chain into PRD-01/02/03/04 tools for full detail
 
+> **Revised 2026-09-22 (still Draft, now implemented).** Scope lists follow GitLab's current docs:
+> `groups` and `work_items` are added. Instance-wide and group searches of `blobs`, `commits`,
+> `wiki_blobs`, and `notes` all need Advanced Search, a GitLab Premium feature. Advanced Search
+> availability is detected per call, which answers open question 1.
+
 ## 1. Overview
 
 Covers GitLab's search endpoints at three scopes — instance-wide, group, and project — giving an
@@ -20,9 +25,9 @@ exactly where it lives.
 ### `gitlab_search`
 | Action | GitLab endpoint | Notes |
 |---|---|---|
-| `global` | `GET /search` | Instance-wide; `scope` ∈ `projects`, `issues`, `merge_requests`, `milestones`, `users`, `snippet_titles` reliably; `blobs`/`commits` scopes require GitLab **Advanced Search** (Elasticsearch) and are not guaranteed available — see §4 |
-| `group` | `GET /groups/:id/search` | Same scopes as global, bounded to one group/subgroup tree |
-| `project` | `GET /projects/:id/search` | `scope` ∈ `issues`, `merge_requests`, `milestones`, `notes`, `wiki_blobs`, `commits`, `blobs`, `users`; works via GitLab's basic (non-Elasticsearch) search, so `blobs`/`commits` are reliable here even without Advanced Search |
+| `global` | `GET /search` | Instance-wide; `scope` ∈ `projects`, `groups`, `issues`, `work_items`, `merge_requests`, `milestones`, `snippet_titles`, `users` reliably; `blobs`, `commits`, `wiki_blobs`, and `notes` require GitLab **Advanced Search** (Premium, with Elasticsearch or exact code search) and are not guaranteed available — see §4 |
+| `group` | `GET /groups/:id/search` | Same scopes as global except `snippet_titles`, bounded to one group/subgroup tree; group ID or full path |
+| `project` | `GET /projects/:id/search` | `scope` ∈ `issues`, `work_items`, `merge_requests`, `milestones`, `notes`, `wiki_blobs`, `commits`, `blobs`, `users`; works via GitLab's basic (non-Elasticsearch) search, so `blobs`/`commits` are reliable here even without Advanced Search. Optional `ref` for code, commits, and wikis |
 
 ## 4. Non-Functional Requirements
 
@@ -49,7 +54,10 @@ exactly where it lives.
 
 1. Should the server probe and cache whether Advanced Search is available on the configured
    instance at startup (to give accurate scope-availability errors immediately), or just surface
-   GitLab's response as-is per call?
+   GitLab's response as-is per call? **Answered by implementation:** per call, which keeps the
+   server stateless. A refused instance or group search of an Advanced Search scope becomes an
+   `advanced_search_unavailable` error that points to project search. An empty result for such a
+   scope carries the same caveat, since GitLab may return nothing rather than an error.
 
 ## Sources
 

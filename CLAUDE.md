@@ -12,8 +12,8 @@ Personal Access Tokens (PATs).
 ## Current state
 
 - **Built:** the framework (transport, auth, GitLab client, tool framework) per PRD-00, plus the
-  toolsets for PRD-01 to PRD-06 (see the table).
-- **Not built:** PRD-07 and PRD-08. Each adds one toolset on the existing framework.
+  toolsets for PRD-01 to PRD-07 (see the table).
+- **Not built:** PRD-08. It adds one toolset on the existing framework.
 - The PRDs in `docs/prd/` are the spec ("true north"). Every PRD still reads `Status: Draft`: they
   were merged before formal review, at the owner's direction, and the owner is reviewing them now.
   Each implemented PRD carries a **Revised 2026-09-22** note listing what implementation changed.
@@ -29,10 +29,10 @@ Personal Access Tokens (PATs).
 | PRD-04 | `issues` | Issues, labels, milestones | Built |
 | PRD-05 | `pipelines` | CI/CD pipelines, jobs, variables | Built |
 | PRD-06 | `releases` | Releases, release links | Built |
-| PRD-07 | `search` | Global/group/project search | Specced |
+| PRD-07 | `search` | Global/group/project search | Built |
 | PRD-08 | `collaboration` | Members, users, webhooks, wikis | Specced |
 
-Build order: PRD-07 then PRD-08 (the owner's instruction), each complete with tests
+Build order: PRD-08 next (the owner's instruction), complete with tests
 before the next.
 
 ## Owner requirements (non-negotiable)
@@ -81,6 +81,7 @@ src/mcp_gitlab/
     issues/         # PRD-04: gitlab_issues, gitlab_issue_notes, gitlab_labels, gitlab_milestones
     pipelines/      # PRD-05: gitlab_pipelines, gitlab_jobs, gitlab_ci_variables
     releases/       # PRD-06: gitlab_releases, gitlab_release_links
+    search/         # PRD-07: gitlab_search
 tests/              # mirrors src/; toolsets/wire.py drives actions and asserts the GitLab request
 ```
 
