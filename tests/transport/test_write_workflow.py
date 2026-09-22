@@ -123,14 +123,14 @@ async def test_write_tools_are_listed_for_a_caller_with_api_scope() -> None:
     actions = {
         tool.name: tool.input_schema["properties"]["action"]["enum"] for tool in listed.tools
     }
-    assert set(actions) == {
+    assert {
         "gitlab_projects",
         "gitlab_branches",
         "gitlab_tags",
         "gitlab_repository_tree",
         "gitlab_files",
         "gitlab_commits",
-    }
+    } <= set(actions)
     assert "create" in actions["gitlab_projects"]
     assert "create" in actions["gitlab_branches"]
     assert {"create", "create_directory", "update", "delete"} <= set(actions["gitlab_files"])

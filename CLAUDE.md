@@ -12,12 +12,11 @@ Personal Access Tokens (PATs).
 ## Current state
 
 - **Built:** the framework (transport, auth, GitLab client, tool framework) per PRD-00, plus the
-  `projects` toolset (PRD-01) and the `repository` toolset (PRD-02).
-- **Not built:** PRD-03 to PRD-08. Each adds one toolset on the existing framework; none should
-  need framework changes.
+  toolsets for PRD-01 to PRD-03 (see the table).
+- **Not built:** PRD-04 to PRD-08. Each adds one toolset on the existing framework.
 - The PRDs in `docs/prd/` are the spec ("true north"). Every PRD still reads `Status: Draft`: they
   were merged before formal review, at the owner's direction, and the owner is reviewing them now.
-  PRD-00, PRD-01, and PRD-02 carry a **Revised 2026-09-22** note listing what implementation changed.
+  Each implemented PRD carries a **Revised 2026-09-22** note listing what implementation changed.
   The same PRDs live in the review doc at
   https://claude.ai/code/artifact/5f511063-0ef0-4575-bdec-7300ece02c5a — keep the two in sync.
 
@@ -26,15 +25,15 @@ Personal Access Tokens (PATs).
 | PRD-00 | — | Architecture, transport, auth (read first) | Built |
 | PRD-01 | `projects` | Projects, branches, tags | Built |
 | PRD-02 | `repository` | File tree, files, directories, commits, diffs | Built |
-| PRD-03 | `merge_requests` | MRs, discussions, approvals, merge | Specced |
+| PRD-03 | `merge_requests` | MRs, discussions, approvals, merge | Built |
 | PRD-04 | `issues` | Issues, labels, milestones | Specced |
 | PRD-05 | `pipelines` | CI/CD pipelines, jobs, variables | Specced |
 | PRD-06 | `releases` | Releases, release links | Specced |
 | PRD-07 | `search` | Global/group/project search | Specced |
 | PRD-08 | `collaboration` | Members, users, webhooks, wikis | Specced |
 
-Suggested order for the rest: any of PRD-03 to PRD-06 and PRD-08, then `search` (PRD-07) last,
-since its results link back into the other toolsets.
+Build order: PRD-04 to PRD-08 in sequence (the owner's instruction), each complete with tests
+before the next.
 
 ## Owner requirements (non-negotiable)
 
@@ -73,8 +72,12 @@ src/mcp_gitlab/
   toolsets/
     __init__.py     # TOOLSETS — register each new toolset here
     common.py       # shared param types: ProjectRef, NamespaceRef, Ref, access levels, query()
+    content.py      # bytes to text-or-base64, and the file-too-large error
+    diffs.py        # changed-file summaries (PRD-00 §10 large-payload discipline)
+    threads.py      # discussions and notes, shared by merge requests and issues
     projects/       # PRD-01: gitlab_projects, gitlab_branches, gitlab_tags
     repository/     # PRD-02: gitlab_repository_tree, gitlab_files, gitlab_commits
+    merge_requests/ # PRD-03: gitlab_merge_requests, gitlab_mr_reviews
 tests/              # mirrors src/; toolsets/wire.py drives actions and asserts the GitLab request
 ```
 
@@ -102,8 +105,10 @@ the handler runs with `ctx.gitlab`, a `GitLabSession` bound to that request's PA
    the real MCP client, validating the arguments against the schema `tools/list` advertises.
 
 Declarations are checked when they're built and again when the registry loads them: invalid or
-duplicate names, `destructive` on a read action, and one parameter name with different shapes
-across a tool's actions all fail at startup, not on first call.
+duplicate names, `destructive` on a read action, and one parameter name with different types
+across a tool's actions all fail at startup, not on first call. A parameter may be optional for
+one action and required for another; reuse one `Annotated` type so its description fits every
+action, since the tool schema shows one description per parameter.
 
 ## Conventions
 

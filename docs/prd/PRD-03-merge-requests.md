@@ -2,6 +2,11 @@
 
 **Status:** Draft · **Toolset name:** `merge_requests` · **Depends on:** PRD-00, PRD-01, PRD-02 (diffs share large-payload handling)
 
+> **Revised 2026-09-22 (still Draft, now implemented).** `get_diff` uses GitLab's paginated
+> `/diffs` endpoint because `/changes` is deprecated. `unapprove` is a `POST`. `approve` takes no
+> `approval_password`. `list_approval_rules` needs GitLab Premium. Diff-line comments are built,
+> which answers open question 2.
+
 ## 1. Overview
 
 Merge requests are the deepest tool surface in every surveyed GitLab MCP server — this PRD covers
@@ -24,22 +29,22 @@ the full MR lifecycle plus the review mechanics (discussions, notes, approvals) 
 | `create` | `POST /projects/:id/merge_requests` | `source_branch`, `target_branch`, `title`, `description`, `labels`, `assignee_ids`, `draft` (via title/description convention) |
 | `update` | `PUT /projects/:id/merge_requests/:iid` | Title, description, labels, assignees, target branch |
 | `close` / `reopen` | `PUT …?state_event=close\|reopen` | |
-| `get_diff` | `GET /projects/:id/merge_requests/:iid/changes` | Changed-files summary by default; per-file diff on request — same convention as PRD-02 §4 |
+| `get_diff` | `GET /projects/:id/merge_requests/:iid/diffs` | Changed-files summary by default; per-file diff on request — same convention as PRD-02 §4. Paginated. (`/changes`, named in earlier drafts, was deprecated in GitLab 15.7 and is scheduled for removal in API v5.) |
 | `list_commits` | `GET /projects/:id/merge_requests/:iid/commits` | |
-| `merge` | `PUT /projects/:id/merge_requests/:iid/merge` | Squash/merge-commit options; **destructive/high-impact**, requires `confirm: true`; surfaces `merge_status`/conflict errors clearly |
-| `rebase` | `PUT /projects/:id/merge_requests/:iid/rebase` | |
+| `merge` | `PUT /projects/:id/merge_requests/:iid/merge` | `squash`, `should_remove_source_branch`, `sha`, `auto_merge` (merge once checks pass; `merge_when_pipeline_succeeds` is sent too for GitLab before 17.11); **destructive/high-impact**, requires `confirm: true`. A refusal comes back as `merge_blocked` or `merge_pending` with `detailed_merge_status` and a `next_step` (§4) |
+| `rebase` | `PUT /projects/:id/merge_requests/:iid/rebase` | Runs in the background; poll `get` with `include_rebase_in_progress` |
 
 ### `gitlab_mr_reviews`
 | Action | GitLab endpoint | Notes |
 |---|---|---|
 | `list_discussions` | `GET /projects/:id/merge_requests/:iid/discussions` | Threaded comments, including inline/diff-anchored ones |
-| `create_discussion` | `POST /projects/:id/merge_requests/:iid/discussions` | Optional `position` for inline/diff comments |
+| `create_discussion` | `POST /projects/:id/merge_requests/:iid/discussions` | Optional diff position: `file_path` with `new_line` and/or `old_line` (and `old_path` for a renamed file). The server fills in the base, head, and start SHAs from the merge request's `diff_refs` |
 | `reply_discussion` | `POST /projects/:id/merge_requests/:iid/discussions/:discussion_id/notes` | |
 | `resolve_discussion` | `PUT /projects/:id/merge_requests/:iid/discussions/:discussion_id` | `resolved: true/false` |
-| `list_notes` / `create_note` / `update_note` / `delete_note` | `.../notes` | Plain (non-inline) comments |
+| `list_notes` / `create_note` / `update_note` / `delete_note` | `.../notes` | Plain (non-inline) comments; `update_note`/`delete_note` take an optional `discussion_id` to edit a thread reply through `.../discussions/:discussion_id/notes/:note_id` |
 | `list_approvals` | `GET /projects/:id/merge_requests/:iid/approvals` | |
-| `approve` / `unapprove` | `POST`/`DELETE /projects/:id/merge_requests/:iid/approve`/`/unapprove` | |
-| `list_approval_rules` | `GET /projects/:id/merge_requests/:iid/approval_rules` | Read-only — see Out of Scope |
+| `approve` / `unapprove` | `POST /projects/:id/merge_requests/:iid/approve` / `POST .../unapprove` | Optional `sha` on approve. `approval_password` is deliberately not accepted: a user's password must never pass through an LLM tool call |
+| `list_approval_rules` | `GET /projects/:id/merge_requests/:iid/approval_rules` | Read-only — see Out of Scope. GitLab Premium/Ultimate only; on Free the error says so and points at `list_approvals` |
 
 ## 4. Non-Functional Requirements
 
@@ -67,7 +72,8 @@ the full MR lifecycle plus the review mechanics (discussions, notes, approvals) 
 1. Should `merge` be excluded from the default toolset (like `gitlab_projects.delete` in PRD-01),
    requiring an explicit opt-in scope, given it changes the target branch's history?
 2. Is inline/diff-position commenting (vs. only general MR comments) a v1 requirement, or can it
-   wait — it's meaningfully more complex to get the position payload right than a plain note?
+   wait? **Answered by implementation:** built. The caller gives a file and line numbers, and the
+   server resolves the diff SHAs.
 
 ## Sources
 

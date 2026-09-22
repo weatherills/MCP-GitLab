@@ -9,7 +9,7 @@ from mcp_gitlab.core.errors import PayloadTooLargeError
 from mcp_gitlab.gitlab import encode_segment, project_path
 from mcp_gitlab.tools import Access, Action, ActionContext, ActionParams, Tool
 from mcp_gitlab.toolsets.common import ProjectRef
-from mcp_gitlab.toolsets.repository.content import file_too_large, present
+from mcp_gitlab.toolsets.content import file_too_large, present
 
 # Git tracks files, not directories: a directory exists once it contains a file.
 DIRECTORY_PLACEHOLDER = ".gitkeep"

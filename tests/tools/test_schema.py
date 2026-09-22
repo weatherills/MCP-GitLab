@@ -72,6 +72,70 @@ def test_conflicting_parameter_shapes_are_rejected() -> None:
         build_input_schema(tool, tool.actions)
 
 
+def test_a_parameter_optional_for_one_action_and_required_for_another_is_one_parameter() -> None:
+    class Create(ActionParams):
+        title: str = Field(min_length=1, description="Title.")
+
+    class Update(ActionParams):
+        title: str | None = Field(default=None, min_length=1, description="New title.")
+
+    tool = Tool(
+        name="t",
+        description="d",
+        actions=(
+            Action("update", "u", Update, list_gadgets, Access.WRITE),
+            Action("create", "c", Create, list_gadgets, Access.WRITE),
+        ),
+    )
+    title = build_input_schema(tool, tool.actions)["properties"]["title"]
+    assert title["type"] == "string" and title["minLength"] == 1
+    assert "anyOf" not in title and "default" not in title
+    assert title["description"] == "Title. (required for: create)"
+
+
+def test_a_shared_annotated_type_matches_its_optional_use() -> None:
+    from typing import Annotated
+
+    Thread = Annotated[str, Field(min_length=1, description="Thread ID.")]
+
+    class Reply(ActionParams):
+        thread: Thread
+
+    class Edit(ActionParams):
+        thread: Thread | None = Field(default=None, description="Thread, for a reply.")
+
+    tool = Tool(
+        name="t",
+        description="d",
+        actions=(
+            Action("edit", "e", Edit, list_gadgets, Access.WRITE),
+            Action("reply", "r", Reply, list_gadgets, Access.WRITE),
+        ),
+    )
+    thread = build_input_schema(tool, tool.actions)["properties"]["thread"]
+    assert thread["type"] == "string"
+    assert thread["description"].startswith("Thread ID.")
+
+
+def test_optional_parameters_must_still_agree_on_their_type() -> None:
+    class A(ActionParams):
+        limit: int | None = None
+
+    class B(ActionParams):
+        limit: str
+
+    tool = Tool(
+        name="t",
+        description="d",
+        actions=(
+            Action("a", "a", A, list_gadgets, Access.READ),
+            Action("b", "b", B, list_gadgets, Access.READ),
+        ),
+    )
+    with pytest.raises(SchemaConflictError, match="'limit'"):
+        build_input_schema(tool, tool.actions)
+
+
 def test_description_flags_writes_and_destructive_actions() -> None:
     text = describe_tool(WIDGETS, WIDGETS.actions)
     assert text.startswith("Manage widgets in a project.")

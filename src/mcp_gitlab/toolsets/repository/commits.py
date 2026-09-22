@@ -7,7 +7,7 @@ from pydantic import Field, model_validator
 from mcp_gitlab.gitlab import Page, encode_segment, project_path
 from mcp_gitlab.tools import Access, Action, ActionContext, ActionParams, PageParams, Tool
 from mcp_gitlab.toolsets.common import ProjectRef, Ref, query
-from mcp_gitlab.toolsets.repository.diffs import summarize_commit, summarize_diffs
+from mcp_gitlab.toolsets.diffs import summarize_commit, summarize_diffs
 
 Sha = Annotated[str, Field(min_length=1, description="Commit SHA, or a branch or tag name.")]
 TargetBranch = Annotated[str, Field(min_length=1, description="Branch to commit to.")]

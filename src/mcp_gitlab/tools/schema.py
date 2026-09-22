@@ -39,12 +39,17 @@ def build_input_schema(tool: Tool, actions: Sequence[Action]) -> dict[str, Any]:
                 )
         required = set(schema.get("required", ()))
         for name, prop in schema.get("properties", {}).items():
-            existing = properties.setdefault(name, prop)
-            if _without_docs(existing) != _without_docs(prop):
+            existing = properties.get(name)
+            if existing is None:
+                properties[name] = prop
+            elif _shape(existing) != _shape(prop):
                 raise SchemaConflictError(
                     f"{tool.name}: parameter '{name}' is declared differently by actions "
                     f"{used_by[name] + [action.name]}; give it one shape or distinct names."
                 )
+            elif _optional_inner(existing) is not None and _optional_inner(prop) is None:
+                # Optional for one action, required for another: advertise the plain type.
+                properties[name] = prop
             used_by.setdefault(name, []).append(action.name)
             if name in required:
                 required_by.setdefault(name, []).append(action.name)
@@ -112,8 +117,26 @@ def _clean(schema: Any) -> Any:
     return cleaned
 
 
-def _without_docs(prop: dict[str, Any]) -> dict[str, Any]:
+def _shape(prop: dict[str, Any]) -> dict[str, Any]:
+    """What a property accepts, ignoring its docs and whether this action makes it optional."""
+    inner = _optional_inner(prop)
+    if inner is not None:
+        return inner
     return {key: value for key, value in prop.items() if key != "description"}
+
+
+def _optional_inner(prop: dict[str, Any]) -> dict[str, Any] | None:
+    """For `X | None = None` (Pydantic's anyOf [X, null] with a null default), X alone."""
+    any_of = prop.get("anyOf")
+    if "default" not in prop or prop["default"] is not None or not isinstance(any_of, list):
+        return None
+    non_null = [option for option in any_of if option != {"type": "null"}]
+    if len(non_null) != 1 or len(non_null) == len(any_of):
+        return None
+    undocumented = ("anyOf", "default", "description")
+    rest = {key: value for key, value in prop.items() if key not in undocumented}
+    inner = {key: value for key, value in non_null[0].items() if key != "description"}
+    return {**inner, **rest}
 
 
 def _with_note(prop: dict[str, Any], note: str) -> dict[str, Any]:
