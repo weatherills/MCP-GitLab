@@ -11,105 +11,140 @@ Personal Access Tokens (PATs).
 
 ## Current state
 
-**Specced, not yet implemented.** Nine PRDs in `docs/prd/` define the full system; no server code
-exists yet beyond project scaffolding (packaging, config, CI, tests for the config module). Every
-PRD file's own header currently reads `Status: Draft` — they were merged to `main` before formal
-per-PRD review sign-off, at the repo owner's explicit direction, so treat their content as the
-working spec but check for updates before relying on any single detail long-term.
+- **Built:** the framework (transport, auth, GitLab client, tool framework) per PRD-00, plus the
+  `projects` toolset (PRD-01) and the `repository` toolset (PRD-02).
+- **Not built:** PRD-03 to PRD-08. Each adds one toolset on the existing framework; none should
+  need framework changes.
+- The PRDs in `docs/prd/` are the spec ("true north"). Every PRD still reads `Status: Draft`: they
+  were merged before formal review, at the owner's direction, and the owner is reviewing them now.
+  PRD-00, PRD-01, and PRD-02 carry a **Revised 2026-09-22** note listing what implementation changed.
+  The same PRDs live in the review doc at
+  https://claude.ai/code/artifact/5f511063-0ef0-4575-bdec-7300ece02c5a — keep the two in sync.
 
-Read `docs/prd/PRD-00-architecture.md` first — it defines transport, auth, tool organization, and
-the shared conventions (pagination, error handling, retries) every other PRD depends on. Then
-`docs/prd/PRD-01-projects.md` through `PRD-08-collaboration.md`, one per GitLab command domain.
+| PRD | Toolset | Domain | State |
+|---|---|---|---|
+| PRD-00 | — | Architecture, transport, auth (read first) | Built |
+| PRD-01 | `projects` | Projects, branches, tags | Built |
+| PRD-02 | `repository` | File tree, files, directories, commits, diffs | Built |
+| PRD-03 | `merge_requests` | MRs, discussions, approvals, merge | Specced |
+| PRD-04 | `issues` | Issues, labels, milestones | Specced |
+| PRD-05 | `pipelines` | CI/CD pipelines, jobs, variables | Specced |
+| PRD-06 | `releases` | Releases, release links | Specced |
+| PRD-07 | `search` | Global/group/project search | Specced |
+| PRD-08 | `collaboration` | Members, users, webhooks, wikis | Specced |
 
-| PRD | Toolset | Domain |
-|---|---|---|
-| PRD-00 | — | Architecture, transport, auth (read first) |
-| PRD-01 | `projects` | Projects, branches, tags |
-| PRD-02 | `repository` | File tree, files, commits, diffs |
-| PRD-03 | `merge_requests` | MRs, discussions, approvals, merge |
-| PRD-04 | `issues` | Issues, labels, milestones |
-| PRD-05 | `pipelines` | CI/CD pipelines, jobs, variables |
-| PRD-06 | `releases` | Releases, release links |
-| PRD-07 | `search` | Global/group/project search |
-| PRD-08 | `collaboration` | Members, users, webhooks, wikis |
+Suggested order for the rest: any of PRD-03 to PRD-06 and PRD-08, then `search` (PRD-07) last,
+since its results link back into the other toolsets.
 
-## Before you write `server.py`
+## Owner requirements (non-negotiable)
 
-**Verify the MCP Python SDK's current API before wiring up the transport — do not assume the
-latest release matches PRD-00's target.** While preparing this repo, fetching the SDK's current
-README showed a `MCPServer`/`@mcp.tool()`/`mcp run --transport streamable-http` surface that looks
-like a newer "v2" SDK line; earlier research for PRD-00 found an older `FastMCP` line (manual ASGI
-mounting, `streamable_http_path`/`stateless_http`/`session_idle_timeout` options) associated with
-protocol revision 2025-11-25, while the newest SDK releases appear to be moving toward protocol
-revision 2026-07-28 — which **removes MCP sessions entirely**, a breaking change from what PRD-00
-§4 specifies and what this repo's `config.py` (`MCP_SESSION_IDLE_TIMEOUT`, `MCP_MAX_SESSIONS`)
-already assumes. Concretely, before writing any transport code:
+1. **Shared server, one PAT per request.** Every request carries its caller's own PAT, and that PAT
+   is used only for the GitLab calls made while serving that request — never cached, never stored
+   in an MCP session, never used for any other request. There is no server-side token
+   (`GITLAB_TOKEN` is ignored with a warning). `tests/transport/test_isolation.py` and
+   `tests/transport/test_write_workflow.py` prove this with concurrent callers; they must keep
+   passing.
+2. **Read-write.** The server creates repositories, branches, directories, and files, not just
+   reads them. Read-only is opt-in (`GITLAB_MCP_READ_ONLY` or the `X-MCP-Readonly` header).
 
-1. Check the installed/target `mcp` package version against which protocol revision it implements.
-2. If it's already on 2026-07-28 semantics, pin to an earlier release that still implements
-   2025-11-25 session-based Streamable HTTP, **or** take this back to a PRD-00 revision — don't
-   silently build against whichever the dependency resolver happens to pick.
-3. Only then write `src/mcp_gitlab/server.py`.
+## Architecture
 
-This isn't optional busywork: it decides whether `Settings.mcp_session_idle_timeout` and
-`Settings.mcp_max_sessions` are meaningful at all.
+Ports and adapters, stateless by default. Dependencies point inward only:
 
-## Layout
+```
+transport/  (MCP + HTTP adapter)  ─┐
+toolsets/   (GitLab domains)       ├─→ tools/ (tool framework) ─→ core/
+gitlab/     (GitLab REST adapter) ─┘                              ↑
+app.py      composition root: wires everything; nothing imports it
+```
 
 ```
 src/mcp_gitlab/
-  __init__.py       # exists
-  py.typed          # exists (PEP 561 marker)
-  config.py         # exists — Settings, from PRD-00 §8
-  server.py         # NOT YET WRITTEN — entrypoint; see "Before you write server.py" above
-  gitlab_client.py  # NOT YET WRITTEN — shared HTTP client: PAT propagation (PRD-00 §7),
-                    #   retry/backoff/pagination (PRD-00 §10). Every toolset module below
-                    #   should depend on this rather than calling httpx directly.
+  __main__.py       # `mcp-gitlab` entrypoint: settings, TLS policy, uvicorn
+  app.py            # create_app(): registry → GitLab client → dispatcher → MCP server → ASGI app
+  config.py         # Settings (PRD-00 §8) and the startup safety checks (§4.3, §7.4, §9)
+  core/             # errors (ToolError hierarchy), per-request context + PAT extraction, JSON logs
+  gitlab/           # GitLabClient (shared pool, retries, size caps), GitLabSession (one PAT),
+                    #   pagination, path encoding, token-scope lookup
+  tools/            # Action/Tool/Toolset model, JSON schema builder, registry (toolset and
+                    #   read-only filtering), dispatcher (validation, confirm, errors, logging)
+  transport/        # MCP lowlevel server (tools/list, tools/call) and the Starlette app:
+                    #   /mcp behind the 401 PAT gate, /healthz
   toolsets/
-    projects.py         # NOT YET WRITTEN — PRD-01
-    repository.py       # NOT YET WRITTEN — PRD-02
-    merge_requests.py   # NOT YET WRITTEN — PRD-03
-    issues.py           # NOT YET WRITTEN — PRD-04
-    pipelines.py        # NOT YET WRITTEN — PRD-05
-    releases.py         # NOT YET WRITTEN — PRD-06
-    search.py           # NOT YET WRITTEN — PRD-07
-    collaboration.py    # NOT YET WRITTEN — PRD-08
-tests/
-  __init__.py
-  test_config.py    # exists
-  # one test module per toolset, mirroring src/mcp_gitlab/toolsets/, as each is built
+    __init__.py     # TOOLSETS — register each new toolset here
+    common.py       # shared param types: ProjectRef, NamespaceRef, Ref, access levels, query()
+    projects/       # PRD-01: gitlab_projects, gitlab_branches, gitlab_tags
+    repository/     # PRD-02: gitlab_repository_tree, gitlab_files, gitlab_commits
+tests/              # mirrors src/; toolsets/wire.py drives actions and asserts the GitLab request
 ```
 
-Suggested build order: `server.py` (transport skeleton, zero tools, per the verification step
-above) → `gitlab_client.py` → `toolsets/projects.py` (everything else's dependency for
-`project_id` resolution) → the remaining toolsets in any order → `search.py` last, since it's most
-useful once the things it links back into (PRD-01/02/03/04) already exist.
+How one tool call flows: `transport/http.py` rejects a request without a PAT (`401`) →
+`transport/mcp_server.py` builds a `RequestContext` from **that request's** headers →
+`tools/dispatcher.py` resolves the tool and action, checks `confirm`, validates the arguments →
+the handler runs with `ctx.gitlab`, a `GitLabSession` bound to that request's PAT → the result or a
+`ToolError` goes back as structured content.
+
+## Adding a toolset (PRD-03 to PRD-08)
+
+1. Create `src/mcp_gitlab/toolsets/<toolset>/`, one module per tool, following
+   `toolsets/repository/tree.py` (smallest) or `toolsets/projects/branches.py` (typical).
+2. Per action, declare a params model (subclass `ActionParams`, or `PageParams` for lists; field
+   descriptions become the tool schema) and an `async def handler(params, ctx: ActionContext)`.
+   Call GitLab only through `ctx.gitlab` (`get`, `get_page`, `get_bytes`, `post`, `put`, `delete`),
+   and build paths with `project_path()` / `encode_segment()`.
+3. Declare `Action(name, description, Params, handler, Access.READ | Access.WRITE,
+   destructive=True?)`, group actions into a `Tool`, and the tools into a `Toolset` in the package's
+   `__init__.py`. Add the toolset to `TOOLSETS` in `toolsets/__init__.py`.
+4. Add `tests/toolsets/test_<toolset>.py`: one wire `Case` per action (method, path, query, body)
+   plus the coverage guard (see `test_projects.py`), then tests for any logic of your own.
+
+Declarations are checked when they're built and again when the registry loads them: invalid or
+duplicate names, `destructive` on a read action, and one parameter name with different shapes
+across a tool's actions all fail at startup, not on first call.
 
 ## Conventions
 
 - Python ≥3.10, `src/` layout, package name `mcp_gitlab`.
-- Lint/format: `ruff` (`ruff check .`). Types: `mypy --strict` (`mypy src`). Tests: `pytest`.
-  All three currently pass on `main` — keep them passing.
-- Per PRD-00 §6: prefer one coarse tool per domain with an `action` discriminator parameter
-  (`gitlab_branches(action="list"|"create"|...)`) over one MCP tool per GitLab REST endpoint.
-- Destructive/high-impact actions (project/branch/issue delete, MR merge, member remove — each
-  PRD's tables mark these) require an explicit `confirm: true` argument; don't add this ceremony
-  to ordinary reads or routine writes.
-- Secrets (GitLab PAT, CI/CD variable values, webhook tokens) are never logged and never echoed
-  back in a tool response unless the specific PRD says otherwise (e.g. CI/CD variable `get` with
-  `reveal_value: true`, PRD-05 §3).
-- List-style tools take `page`/`per_page` and return pagination metadata (PRD-00 §10) — never
-  silently fetch-all internally.
+- Lint/format: `ruff` (`ruff check .`, `ruff format .`). Types: `mypy --strict` (`mypy src`).
+  Tests: `pytest`. CI runs all three on Python 3.10 and 3.12 — keep them passing.
+- Per PRD-00 §6: one coarse tool per domain with an `action` discriminator
+  (`gitlab_branches(action="list"|"create"|...)`), not one MCP tool per GitLab REST endpoint.
+- Destructive/high-impact actions (each PRD's tables mark them) are declared `destructive=True`,
+  which makes the dispatcher require `confirm: true`. Don't add this to ordinary reads or writes.
+- Handlers return plain data: a dict/list from GitLab, a `Page` for lists, or `None` for success
+  with no body. Raise a `ToolError` subclass (`core/errors.py`) for caller mistakes; GitLab HTTP
+  errors are mapped for you.
+- Secrets (the PAT, CI/CD variable values, webhook tokens) are never logged and never echoed back
+  unless the specific PRD says otherwise (e.g. CI/CD variable `get` with `reveal_value: true`,
+  PRD-05 §3). Logs record argument names, never values.
+- List actions take `page`/`per_page` (`PageParams`) and return pagination metadata (PRD-00 §10)
+  — never fetch-all internally.
+- Never call `httpx` from a toolset, and never keep per-caller state in module globals or on the
+  client: the only per-request state is the `RequestContext` and its `GitLabSession`.
+
+## Decisions made during implementation
+
+Recorded in the PRDs' revision notes; summarized here so they aren't re-litigated by accident:
+
+- **MCP SDK:** `mcp>=2.2,<3`, using the lowlevel `mcp.server.Server`. SDK 2.2 serves protocol
+  revision 2025-11-25 (PRD-00's target) and also answers 2026-07-28 requests on the same endpoint.
+- **Stateless by default** (`MCP_STATELESS_HTTP=true`); stateful sessions are optional and never
+  hold a credential. In stateless mode `GET /mcp` returns `405`, since there is nothing to push.
+- **No retry of `POST` on `5xx`:** it may already have been applied (duplicate commits). `429` is
+  retried for any method.
+- **File content is text by default**, base64 only for non-UTF-8 content (PRD-02 §4).
+- **`create_directory`** commits `<dir>/.gitkeep`, since Git has no empty directories (PRD-02).
+- **Tags carry no release notes** — the Tags API has no such field (PRD-01).
+- **Not built:** PRD-00 §10's per-caller outbound rate limit (needs shared state; PRD-00 §13 Q4).
 
 ## Running things
 
 ```
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-ruff check .
-mypy src
-pytest
+ruff check . && mypy src && pytest
+mcp-gitlab                 # http://127.0.0.1:8080/mcp; --insecure-dev allows plaintext off loopback
 ```
 
-No `.env` is required to run the test suite as it stands (config tests set env vars themselves via
-`monkeypatch`). Copy `.env.example` to `.env` for local manual runs once `server.py` exists.
+No `.env` is needed for the test suite. For manual runs, copy `.env.example` to `.env`. Clients send
+`Authorization: Bearer <PAT>` on every request.

@@ -2,6 +2,10 @@
 
 **Status:** Draft · **Toolset name:** `projects` · **Depends on:** PRD-00 (transport, auth, pagination, error conventions)
 
+> **Revised 2026-09-22 (still Draft).** Corrected `gitlab_tags` `create`: GitLab's Tags API takes no
+> release notes. Clarified that `create` accepts a namespace path as well as an ID. Creating
+> repositories and branches is an explicit owner requirement (PRD-00 §2).
+
 ## 1. Overview
 
 Covers the project (repository) lifecycle itself and its two ref types — branches and tags — the
@@ -24,7 +28,7 @@ Per PRD-00 §6, expose as coarse action-discriminated tools, not one tool per en
 |---|---|---|
 | `list` | `GET /projects` | Filters: `search`, `owned`, `membership`, `visibility`, `archived`; paginated per PRD-00 §10 |
 | `get` | `GET /projects/:id` | Accepts numeric id or URL-encoded `namespace/path` |
-| `create` | `POST /projects` | Name/path, namespace, visibility, initialize-with-readme |
+| `create` | `POST /projects` | Name/path, namespace (numeric ID or full path, resolved to an ID via `GET /namespaces/:id`), visibility, initialize-with-readme |
 | `update` | `PUT /projects/:id` | Settings: description, visibility, default branch, merge method, etc. |
 | `delete` | `DELETE /projects/:id` | **Destructive** — requires an explicit `confirm: true` argument; GitLab itself soft-deletes with a retention period, surface that in the response |
 | `fork` | `POST /projects/:id/fork` | Optional target namespace |
@@ -49,7 +53,7 @@ Per PRD-00 §6, expose as coarse action-discriminated tools, not one tool per en
 |---|---|---|
 | `list` | `GET /projects/:id/repository/tags` | |
 | `get` | `GET /projects/:id/repository/tags/:tag_name` | |
-| `create` | `POST /projects/:id/repository/tags` | Optional message (annotated) and release notes |
+| `create` | `POST /projects/:id/repository/tags` | `tag_name`, `ref`; optional `message` makes an annotated tag. The Tags API takes no release notes; create a release with PRD-06 |
 | `delete` | `DELETE /projects/:id/repository/tags/:tag_name` | |
 | `protect` | `POST /projects/:id/protected_tags` | |
 | `unprotect` | `DELETE /projects/:id/protected_tags/:name` | |

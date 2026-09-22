@@ -2,6 +2,12 @@
 
 **Status:** Draft · **Owner:** brian@weatherills.com · **Depends on:** none (this PRD is a dependency of PRD-01 through PRD-08)
 
+> **Revised 2026-09-22 (still Draft).** The owner set two hard requirements: the server is a
+> **shared** resource, so every request carries its caller's own PAT, used for that request and no
+> other; and it is **read-write**, able to create repositories, branches, directories, and files.
+> §2, §4, §5, §6, §7.2, §8–§11, and §13 are updated to match; the server-side `GITLAB_TOKEN`
+> fallback is removed.
+
 ## 1. Overview
 
 This PRD defines the foundation every other PRD builds on: the HTTP Streaming transport, session
@@ -25,9 +31,12 @@ servers (see Sources).
   a single-user local stdio tool), reachable over HTTPS.
 - Support both **gitlab.com and self-hosted GitLab** instances, GitLab Community Edition feature
   parity only (see Non-Goals) — matching the repo's stated scope of "non-enterprise GitLab servers."
-- Authenticate to GitLab using **Personal Access Tokens (PATs)**, per the repo's charter, propagated
-  per-request rather than baked into server-side static config, so the server can be shared by
-  multiple users/clients safely.
+- Authenticate to GitLab using **Personal Access Tokens (PATs)**, per the repo's charter. The server
+  is a **shared resource**: every request carries its caller's own PAT, and that PAT is used only for
+  the GitLab calls made on behalf of that request — never cached, never attached to a session, never
+  used for any other request (§7.2). There is no server-side token.
+- Be **read-write**, not read-only: callers can create projects (repositories), branches,
+  directories, and files, as well as read them. Read-only is an opt-in restriction (§6).
 - Keep the tool surface navigable as GitLab's API is large: organize tools into **toolsets** by
   domain (one toolset per functional PRD) that can be selected per deployment or per connection.
 - Establish shared conventions — pagination, error shapes, retry/backoff, logging — that every
@@ -55,7 +64,7 @@ servers (see Sources).
 
 ## 4. Transport: Streamable HTTP
 
-### 4.1 Protocol revision — **needs your decision, see the doc comment on this section**
+### 4.1 Protocol revision — recommendation implemented, sign-off still open
 
 The MCP spec has moved through several revisions since introducing Streamable HTTP, and they are
 not all compatible:
@@ -74,6 +83,11 @@ different architecture, not an incremental change, and it is barely two months o
 writing. This recommendation is the assumption flagged in this doc's review comment; the rest of
 this PRD assumes it.
 
+**Implementation status:** built against 2025-11-25 as recommended. The MCP Python SDK the server
+uses (`mcp` 2.2.x) also answers 2026-07-28 requests on the same endpoint, and because the server
+keeps no per-connection state by default (§5), nothing it does depends on sessions — so a later move
+to 2026-07-28 costs little. Formal sign-off is still open (§13 Q1).
+
 ### 4.2 Endpoint behavior (2025-11-25)
 
 - Single endpoint, `POST /mcp` and `GET /mcp` on the same route.
@@ -84,40 +98,47 @@ this PRD assumes it.
   support emitting either; the client must support consuming either.
 - **GET** (server → client): opens a standalone SSE stream for async server-initiated messages.
   Server returns `text/event-stream` or `405` if it doesn't support server push outside a request.
-- **Sessions:** server returns `MCP-Session-Id` on `InitializeResult`; client echoes it on every
-  subsequent request; server responds `400` if a session-bearing request is missing it, `404` if
-  the session has been terminated (forcing the client to re-`initialize`). Client should send
-  `DELETE` with the session header to end a session explicitly.
+  As built, stateless mode (the default, §5) answers `405` with `Allow: POST`, since there is no
+  session to push to; stateful mode opens the stream.
+- **Sessions (stateful mode only, off by default — §5):** server returns `MCP-Session-Id` on
+  `InitializeResult`; client echoes it on every subsequent request; server responds `400` if a
+  session-bearing request is missing it, `404` if the session has been terminated (forcing the
+  client to re-`initialize`). Client should send `DELETE` with the session header to end a session
+  explicitly.
 - **`MCP-Protocol-Version` header** is required on every request from 2025-11-25 onward; the server
   rejects mismatched/unsupported versions with a clear error rather than guessing.
 - **Resumability:** SSE events may carry a per-stream `id`; on disconnect the client reconnects via
-  `GET` with `Last-Event-ID`, and the server replays only that stream's missed messages.
+  `GET` with `Last-Event-ID`, and the server replays only that stream's missed messages. **Not
+  provided in v1:** replay needs an event store, which a stateless server doesn't keep.
 
 ### 4.3 Security requirements (spec-mandated, not optional)
 
 - **Validate the `Origin` header** on every request to prevent DNS-rebinding attacks; reject with
-  `403` on mismatch (mandatory since 2025-11-25).
+  `403` on mismatch (mandatory since 2025-11-25). The `Host` header is checked too (`421` on
+  mismatch). Both checks stay on for every bind address, driven by `MCP_ALLOWED_ORIGINS` and
+  `MCP_ALLOWED_HOSTS` (§8), not only for loopback.
 - **Do not bind to `0.0.0.0`** for any local/dev mode; bind to `127.0.0.1`. The production
   deployment target is behind HTTPS termination (see §9), so this mainly matters for local dev.
   Given this repo's name and README explicitly call out **HTTPS**, TLS termination is a first-class
   requirement, not an afterthought — see §9.
 - **Require authentication on all connections** — no anonymous tool calls, even for read-only
-  tools, since a caller's GitLab PAT determines exactly what they can see (§7).
+  tools, since a caller's GitLab PAT determines exactly what they can see (§7). Enforced before any
+  MCP processing: a `/mcp` request without a PAT gets `401` with `WWW-Authenticate: Bearer`. The
+  gate checks that a PAT is present; GitLab validates it on every call.
 
 ## 5. Session Management
 
-- Stateful mode: one `MCP-Session-Id` maps to one initialized MCP session, holding the negotiated
-  protocol capabilities and (critically, see §7.2) the caller's GitLab credential for the session's
-  lifetime, in memory only — never persisted to disk or logs.
-- Session idle timeout and a max-concurrent-sessions cap are required configuration knobs (see
-  §8) to bound memory use on a shared host; both the TypeScript and Python official SDKs expose
-  these as first-class server options.
-- Multi-replica deployment (horizontal scaling) requires either sticky routing to the replica that
-  holds a session, or an external session/event store shared across replicas. v1 targets
-  single-instance deployment; a shared store is called out as a Phase 2 need if horizontal scaling
-  is required (see §12).
-- Stateless mode (`sessionIdGenerator: undefined` equivalent) remains available as a config toggle
-  for simple deployments that don't need resumable streams, at the cost of losing SSE resumability.
+- **Stateless by default** (`MCP_STATELESS_HTTP=true`): every HTTP request is self-contained. No
+  `MCP-Session-Id` is issued and nothing about a caller is kept between requests, so any replica can
+  serve any request — horizontal scaling needs no sticky routing and no shared store.
+- **Stateful mode** (`MCP_STATELESS_HTTP=false`) remains available for clients that want the
+  standalone server-push stream: one `MCP-Session-Id` maps to one initialized MCP session holding
+  the negotiated protocol capabilities. `MCP_SESSION_IDLE_TIMEOUT` and `MCP_MAX_SESSIONS` (§8) bound
+  its memory use on a shared host and apply only in this mode. Across replicas it needs sticky
+  routing.
+- **In neither mode does a session hold a credential.** The caller's PAT is read from each HTTP
+  request and used only for the GitLab calls that request triggers (§7.2); every later request in
+  the same session must bring its own PAT or is rejected with `401`.
 
 ## 6. Tool Organization (toolsets)
 
@@ -137,10 +158,14 @@ directly, since it's the most-deployed precedent at this scale (96 tools across 
 - Toolset selection is configurable two ways, mirroring GitHub's remote server:
   - **Env var** at deploy time: `GITLAB_MCP_TOOLSETS=repository,merge_requests,issues` (default: a
     sensible core set — see §8).
-  - **Per-connection header** on the remote HTTP server: `X-MCP-Toolsets`, so one deployment can
-    serve different tool subsets to different clients without a redeploy.
-- A `read_only` mode (env var + `X-MCP-Readonly` header) disables every mutating tool across every
-  toolset at once — required by §9 and useful as a safe default for first-time connections.
+  - **Per-request header** on the remote HTTP server: `X-MCP-Toolsets`, so one deployment can
+    serve different tool subsets to different clients without a redeploy. The header selects
+    within the deployment's allow-list and can never enable a toolset the deployment excludes;
+    `all` selects everything the deployment allows.
+- A `read_only` mode (`GITLAB_MCP_READ_ONLY`, or the `X-MCP-Readonly: true` header per request)
+  hides and refuses every mutating action across every toolset at once. It is **off by default** —
+  the server is read-write (§2) — and the header can only tighten the deployment's setting, never
+  loosen it.
 
 ## 7. Authentication & GitLab Connection
 
@@ -158,22 +183,28 @@ from the spec's strict guidance, not an oversight.
 
 ### 7.2 Mechanism
 
-- The client supplies a GitLab PAT per session, via **either** `Authorization: Bearer <PAT>` or
-  GitLab's own `PRIVATE-TOKEN: <PAT>` header on the `initialize` request. The server does not read
-  tokens from any other source at request time.
-- The token is held in memory for the lifetime of the MCP session (§5) and forwarded as-is to the
-  GitLab API on every call that session makes. It is never logged, never written to disk, and never
-  echoed back in tool output.
+- The client sends a GitLab PAT on **every** HTTP request to `/mcp`, not just on `initialize`, as
+  **either** `Authorization: Bearer <PAT>` or GitLab's own `PRIVATE-TOKEN: <PAT>` header. A request
+  without one is rejected with `401` before any MCP processing. The server reads tokens from no other
+  source.
+- **One request, one PAT.** A token is bound to the HTTP request that carried it: it authenticates
+  only the GitLab calls made while serving that request, then is dropped. It is never cached, never
+  stored in an MCP session (§5), and never used for any other request, including a later request
+  from the same client or session. The shared outbound connection pool holds no credentials: the
+  `Authorization` header is set on each GitLab call, cookies GitLab sets are discarded, and
+  redirects are not followed, so a token is never forwarded to another host.
+- The token is never logged, never written to disk, and never echoed back in tool output.
 - Every GitLab API response's permission errors (`401`/`403`) pass through to the caller as MCP
   tool errors rather than being swallowed — the server enforces nothing beyond what the token
   itself already permits.
-- **Token scope-aware tool visibility:** on `initialize`, the server resolves the token's scopes
-  (`api`, `read_api`, `read_repository`, etc. — via `GET /personal_access_tokens/self`) and hides
-  tools the token cannot possibly use (e.g. no write tools for a `read_api`-scoped token), the same
-  behavior GitHub's server applies for classic PATs.
-- A single static server-side PAT via an env var (`GITLAB_TOKEN`) remains supported only as a
-  local/trusted/single-tenant fallback, explicitly documented as unsuitable for a shared multi-user
-  deployment.
+- **Token scope-aware tool visibility:** on each `tools/list`, the server resolves the scopes of
+  that request's token (`api`, `read_api`, etc., via `GET /personal_access_tokens/self`, called with
+  that same token) and hides actions the token cannot use (e.g. no write actions for a
+  `read_api`-scoped token), the same behavior GitHub's server applies for classic PATs. If the
+  lookup fails, nothing is hidden and GitLab's own `403`s apply.
+- **No server-side token.** The `GITLAB_TOKEN` fallback in earlier drafts is removed: a shared server
+  must never act as anyone but the caller. If `GITLAB_TOKEN` is set, the server logs a warning at
+  startup and ignores it.
 
 ### 7.3 Future: OAuth 2.1 (Phase 2, not v1)
 
@@ -197,14 +228,25 @@ but it is not a v1 requirement.
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `GITLAB_BASE_URL` | No | `https://gitlab.com/api/v4` | Target GitLab instance API root |
-| `GITLAB_TOKEN` | No | — | Static fallback PAT (single-tenant/local only, §7.2) |
 | `GITLAB_CA_BUNDLE` | No | system CAs | Custom CA for self-hosted instances |
 | `GITLAB_SKIP_TLS_VERIFY` | No | `false` | Escape hatch for self-hosted only, refused against gitlab.com |
-| `GITLAB_MCP_TOOLSETS` | No | core set (§6) | Comma-separated toolset allow-list |
-| `GITLAB_MCP_READ_ONLY` | No | `false` | Disable all mutating tools |
-| `MCP_SESSION_IDLE_TIMEOUT` | No | 30m | Evict idle sessions |
-| `MCP_MAX_SESSIONS` | No | implementation default | Cap concurrent sessions per instance |
-| `MCP_BIND_HOST` / `MCP_BIND_PORT` | No | `127.0.0.1:8080` behind TLS termination | Listener address |
+| `GITLAB_TIMEOUT_SECONDS` | No | `30` | Timeout for each GitLab call |
+| `GITLAB_MAX_RETRIES` | No | `3` | Retry budget for `429`/`5xx` responses (§10) |
+| `GITLAB_MAX_RESPONSE_BYTES` | No | 10 MiB | Largest GitLab response body the server will read (§10) |
+| `GITLAB_MCP_TOOLSETS` | No | each toolset's default (§6) | Comma-separated toolset allow-list |
+| `GITLAB_MCP_READ_ONLY` | No | `false` | Hide and refuse all mutating actions (§6) |
+| `GITLAB_MCP_MAX_FILE_BYTES` | No | 1 MiB | Largest file content returned by file reads (PRD-02 §4) |
+| `MCP_STATELESS_HTTP` | No | `true` | Stateless Streamable HTTP; `false` enables sessions (§5) |
+| `MCP_SESSION_IDLE_TIMEOUT` | No | `1800` s | Evict idle sessions (stateful mode only) |
+| `MCP_MAX_SESSIONS` | No | SDK default (10,000) | Cap concurrent sessions per instance (stateful mode only) |
+| `MCP_BIND_HOST` / `MCP_BIND_PORT` | No | `127.0.0.1:8080` | Listener address |
+| `MCP_ALLOWED_HOSTS` | When the bind isn't loopback | loopback names | `Host` header values accepted (§4.3) |
+| `MCP_ALLOWED_ORIGINS` | No | loopback origins on a loopback bind, none otherwise | Browser `Origin` values accepted (§4.3) |
+| `MCP_TLS_CERTFILE` / `MCP_TLS_KEYFILE` | No | — | Native TLS; set both or neither (§9) |
+| `MCP_TLS_TERMINATED_UPSTREAM` | No | `false` | Declares that a proxy in front terminates TLS (§9) |
+| `LOG_LEVEL` / `LOG_FORMAT` | No | `INFO` / `json` | Logging (§11) |
+
+There is deliberately no `GITLAB_TOKEN` (§7.2).
 
 ## 9. Deployment & TLS
 
@@ -212,18 +254,27 @@ The repo and README both name this an **HTTPS** GitLab MCP server: the server mu
 reachable over plaintext HTTP in any deployment beyond local dev on `127.0.0.1`. TLS termination
 (reverse proxy, e.g. behind nginx/Caddy/a cloud load balancer, or native TLS in the ASGI server) is
 a hard requirement for any non-localhost bind address, enforced by refusing to start on a
-non-loopback host without either TLS configured or an explicit `--insecure-dev` override.
+non-loopback host without either TLS configured or an explicit `--insecure-dev` override. "TLS
+configured" means either native TLS (`MCP_TLS_CERTFILE` + `MCP_TLS_KEYFILE`) or
+`MCP_TLS_TERMINATED_UPSTREAM=true`, which declares that a reverse proxy or load balancer in front
+terminates TLS. A non-loopback bind also requires `MCP_ALLOWED_HOSTS` (§4.3).
 
 ## 10. Error Handling, Retries & Pagination (shared conventions)
 
 Every functional PRD (01–08) inherits these instead of defining its own:
 
 - **Error classification:** GitLab `4xx` (bad input, permissions, not-found) map to MCP tool errors
-  with the GitLab error body passed through; GitLab `429` and `5xx` are retried with exponential
-  backoff (bounded attempts) before surfacing as a tool error; network-level failures get one retry.
-- **Rate limiting:** honor GitLab's `RateLimit-*`/`Retry-After` response headers; if the server is
-  itself multi-tenant-hosted, apply a per-session outbound rate limit as a safety net independent of
-  GitLab's own limits.
+  with the GitLab error message passed through. `429` is retried for any method, because GitLab
+  rejected the call before doing anything. `5xx` is retried only for idempotent methods (`GET`,
+  `HEAD`, `OPTIONS`, `PUT`, `DELETE`): a `POST` that failed with `5xx` may still have been applied
+  (a commit created, a project forked), so repeating it could apply a write twice. It surfaces as a
+  retryable tool error instead. Retries use exponential backoff with full jitter, bounded by
+  `GITLAB_MAX_RETRIES`. Network failures get one retry: for any method when the connection was never
+  established, otherwise only for idempotent methods.
+- **Rate limiting:** honor GitLab's `Retry-After`/`RateLimit-Reset` response headers. A wait longer
+  than the backoff ceiling (30 s) is not slept through; it is returned as a retryable error carrying
+  `retry_after_seconds`. The per-caller outbound rate limit proposed here as a safety net is **not**
+  built, because it needs state shared across requests and replicas — see §13 Q4.
 - **Pagination:** GitLab REST list endpoints are page/per_page-based with `Link` headers and
   `X-Total`/`X-Page`/`X-Next-Page` response headers. Every list-style tool across every PRD accepts
   `page`/`per_page` (default `per_page=20`, capped at GitLab's max of 100) and returns pagination
@@ -234,14 +285,18 @@ Every functional PRD (01–08) inherits these instead of defining its own:
   Tools returning these must support a way to fetch a summary/list first and full content
   per-item second (e.g. "list changed files in this MR" then "get the diff for file X") rather than
   returning everything in one response — this is called out per-PRD where it applies (PRD-02, PRD-03,
-  PRD-05).
+  PRD-05). Two hard caps back this up: `GITLAB_MAX_RESPONSE_BYTES` for every GitLab response, and
+  `GITLAB_MCP_MAX_FILE_BYTES` for file content.
 
 ## 11. Observability
 
-- Structured request logs (tool name, GitLab endpoint called, status, latency) with the caller's
-  PAT and any GitLab response body content excluded from logs by default.
-  logs by default.
-- A health-check endpoint separate from `/mcp` for deployment liveness/readiness probes.
+- Structured JSON request logs: one event per tool call (tool, action, argument *names*, outcome,
+  latency) and one per GitLab call (method, endpoint, status, attempt, latency, GitLab's own request
+  ID). The caller's PAT, argument values, and GitLab response bodies are excluded from logs by
+  default. Every line carries a request ID — the client's `X-Request-ID` when it's a safe token,
+  otherwise a generated one.
+- A health-check endpoint (`GET /healthz`, no credentials) separate from `/mcp` for deployment
+  liveness/readiness probes.
 
 ## 12. Dependencies & Consumers
 
@@ -251,12 +306,17 @@ in that PRD (§6). None of those PRDs should redefine transport, session, or aut
 
 ## 13. Open Questions
 
-1. **Protocol revision target (2025-11-25 vs. tracking 2026-07-28)** — flagged in the doc comment on
-   this section; needs sign-off before implementation starts.
+1. **Protocol revision target (2025-11-25 vs. tracking 2026-07-28)** — implemented as recommended
+   (§4.1). The SDK also serves 2026-07-28, so this is now low-stakes, but it still needs sign-off.
 2. Is single-instance deployment (no horizontal scaling, no shared session store) acceptable for
-   v1, deferring multi-replica support to Phase 2?
-3. Should the static-PAT fallback (`GITLAB_TOKEN`) be removed entirely rather than documented as
-   discouraged, to force the per-session model from day one?
+   v1? Largely moot now: the stateless default (§5) scales horizontally with no sticky routing or
+   shared store; only the optional stateful mode is single-instance.
+3. Should the static-PAT fallback (`GITLAB_TOKEN`) be removed entirely? **Resolved: removed**, per
+   the owner's requirement that every request use its caller's own PAT and no other (§7.2).
+4. **Per-caller rate limiting.** §10's outbound safety-net limit isn't built: in a stateless,
+   multi-replica deployment it needs a shared store keyed by a token hash. Proposal: leave abuse
+   control (request rates, connection caps) to the reverse proxy or API gateway in front of the
+   server. The `/mcp` gate only checks that a PAT is *present*; GitLab validates it on each call.
 
 ## Sources
 

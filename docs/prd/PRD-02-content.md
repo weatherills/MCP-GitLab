@@ -2,6 +2,10 @@
 
 **Status:** Draft · **Toolset name:** `repository` · **Depends on:** PRD-00, PRD-01 (project/branch identifiers)
 
+> **Revised 2026-09-22 (still Draft).** Added `gitlab_files` `create_directory`, since creating
+> directories and files is an explicit owner requirement (PRD-00 §2). File content now moves as text
+> by default and as base64 only when needed (§4). The size cap is `GITLAB_MCP_MAX_FILE_BYTES`.
+
 ## 1. Overview
 
 Covers reading and writing the actual contents of a repository at a given ref: browsing the file
@@ -11,7 +15,7 @@ This is the toolset an AI coding agent uses most heavily once a project is ident
 ## 2. Goals
 
 - Browse the repository tree at any ref (branch, tag, or SHA).
-- Read and write file content (single-file and atomic multi-file commits).
+- Read and write file content (single-file and atomic multi-file commits), and create directories.
 - Inspect commit history, individual commits, diffs, and branch/ref comparisons.
 - Support cherry-pick and revert as first-class commit operations.
 
@@ -25,12 +29,13 @@ This is the toolset an AI coding agent uses most heavily once a project is ident
 ### `gitlab_files`
 | Action | GitLab endpoint | Notes |
 |---|---|---|
-| `get` | `GET /projects/:id/repository/files/:file_path` | Returns metadata + base64 content at `ref` |
-| `get_raw` | `GET /projects/:id/repository/files/:file_path/raw` | Raw bytes; size-limited per §4 |
+| `get` | `GET /projects/:id/repository/files/:file_path` | Returns metadata + content at `ref` (text or base64, see §4); size-limited per §4 |
+| `get_raw` | `GET /projects/:id/repository/files/:file_path/raw` | Content only, same encoding rule; size-limited per §4 |
 | `get_blame` | `GET /projects/:id/repository/files/:file_path/blame` | Per-line commit attribution |
-| `create` | `POST /projects/:id/repository/files/:file_path` | Requires `branch`, `commit_message`, `content` |
+| `create` | `POST /projects/:id/repository/files/:file_path` | Requires `branch`, `commit_message`, `content`; optional `start_branch` creates `branch` from an existing branch in the same commit |
 | `update` | `PUT /projects/:id/repository/files/:file_path` | Same as create + `last_commit_id` to detect conflicting concurrent edits |
-| `delete` | `DELETE /projects/:id/repository/files/:file_path` | Requires `branch`, `commit_message` |
+| `delete` | `DELETE /projects/:id/repository/files/:file_path` | Requires `branch`, `commit_message`, `last_commit_id` |
+| `create_directory` | `POST /projects/:id/repository/files/:directory%2F.gitkeep` | Requires `branch`, `commit_message`. Git stores files, not directories, so this commits an empty `<directory>/.gitkeep` to make the directory exist |
 
 ### `gitlab_commits`
 | Action | GitLab endpoint | Notes |
@@ -51,9 +56,16 @@ This is the toolset an AI coding agent uses most heavily once a project is ident
   summary (paths + insertion/deletion counts) by default; full per-file diff text is fetched via a
   separate call/parameter (`include_diff_for: [<path>]`) so a large MR-sized commit doesn't blow
   out the response in one shot.
-- File content is transmitted base64-encoded both directions to handle binary files safely;
-  `get_raw` enforces a configurable max size (default 1&nbsp;MB) and returns a clear "too large,
-  use get_raw with a byte range / clone instead" error above it rather than truncating silently.
+- File content moves as text by default. Reads return base64 only when the content isn't valid
+  UTF-8, and writes take `encoding: base64` for binary content. An `encoding` field says which, so
+  binary files round-trip safely without every text edit paying base64's size and legibility cost.
+  (Earlier drafts proposed base64 in both directions.)
+- `get` and `get_raw` enforce `GITLAB_MCP_MAX_FILE_BYTES` (default 1&nbsp;MiB). Above it they return
+  a clear `payload_too_large` error pointing at `get_blame` with a line range, or a clone, rather
+  than truncating silently.
+- **Directories:** creating a file at a new path (`create`, or `batch_commit` for several files)
+  creates its parent directories implicitly. `create_directory` exists for the case where the caller
+  wants a directory before it has any real content.
 - `update`/`delete` require `last_commit_id` (or equivalent) so the server surfaces GitLab's own
   conflict error when the file changed since the caller last read it, instead of silently
   overwriting a concurrent edit.
@@ -70,10 +82,11 @@ This is the toolset an AI coding agent uses most heavily once a project is ident
 
 ## 6. Open Questions
 
-1. Default max size for `get_raw`/`get` file content (1 MB proposed) — does this match the largest
-   files the intended workflows need to read?
+1. Default max size for `get_raw`/`get` file content — implemented as `GITLAB_MCP_MAX_FILE_BYTES`
+   with a 1&nbsp;MiB default. Does this match the largest files the intended workflows need to read?
 2. Should `batch_commit` be the *only* write path (removing single-file `create`/`update`/`delete`)
-   to force atomic commits, or keep both for simplicity on one-file edits?
+   to force atomic commits, or keep both for simplicity on one-file edits? The implementation keeps
+   both for now.
 
 ## Sources
 
