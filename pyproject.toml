@@ -24,6 +24,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "httpx2",
+    "jsonschema>=4.18",
 ]
 
 [project.scripts]

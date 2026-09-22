@@ -199,13 +199,6 @@ async def test_action_reaches_the_documented_endpoint(case: Case) -> None:
     await assert_wire(case)
 
 
-def test_every_prd01_action_is_covered() -> None:
-    from mcp_gitlab.toolsets.projects import TOOLSET
-
-    declared = {f"{tool.name}.{action.name}" for tool in TOOLSET.tools for action in tool.actions}
-    assert declared == {case.id for case in CASES}
-
-
 async def test_create_resolves_a_namespace_path_to_its_id() -> None:
     stub = GitLabStub()
     stub.add("GET", "/namespaces/grp%2Fteam", StubResponse(json={"id": 314, "kind": "group"}))
@@ -217,6 +210,38 @@ async def test_create_resolves_a_namespace_path_to_its_id() -> None:
     body = body_of(stub.requests[-1])
     assert body == {"path": "svc", "namespace_id": 314, "initialize_with_readme": False}
     assert "visibility" not in body  # unset, so the instance's own default applies
+
+
+async def test_delete_reports_the_retention_date() -> None:
+    stub = GitLabStub()
+    stub.add("DELETE", P, StubResponse(status=202, json={"message": "202 Accepted"}))
+    stub.add("GET", P, StubResponse(json={"id": 9, "marked_for_deletion_on": "2026-10-22"}))
+    outcome = await call(
+        stub, "gitlab_projects", {"action": "delete", "project": "grp/app", "confirm": True}
+    )
+    assert outcome.structured["status"] == "marked_for_deletion"
+    assert outcome.structured["marked_for_deletion_on"] == "2026-10-22"
+    assert "2026-10-22" in outcome.structured["note"]
+
+
+async def test_delete_without_retention_reports_deleted() -> None:
+    stub = GitLabStub()
+    stub.add("DELETE", P, StubResponse(status=202, json={"message": "202 Accepted"}))
+    outcome = await call(
+        stub, "gitlab_projects", {"action": "delete", "project": "grp/app", "confirm": True}
+    )  # the read-back gets GitLab's 404
+    assert outcome.structured["status"] == "deleted"
+
+
+async def test_delete_succeeds_even_if_the_read_back_fails() -> None:
+    stub = GitLabStub()
+    stub.add("DELETE", P, StubResponse(status=202, json={"message": "202 Accepted"}))
+    stub.add("GET", P, StubResponse(status=403, json={"message": "403 Forbidden"}))
+    outcome = await call(
+        stub, "gitlab_projects", {"action": "delete", "project": "grp/app", "confirm": True}
+    )
+    assert outcome.is_error is False
+    assert outcome.structured["status"] == "deletion_requested"
 
 
 async def test_create_needs_a_name_or_path() -> None:

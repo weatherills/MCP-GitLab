@@ -32,6 +32,11 @@ class GitLabStub:
     def add(self, method: str, path: str, *responses: StubItem) -> None:
         self._routes.setdefault((method.upper(), path), []).extend(responses)
 
+    def reset(self) -> None:
+        """Forget every route and recorded request, keeping transports already handed out."""
+        self._routes.clear()
+        self.requests.clear()
+
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self._handle)
 

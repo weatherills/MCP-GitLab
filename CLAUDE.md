@@ -95,8 +95,11 @@ the handler runs with `ctx.gitlab`, a `GitLabSession` bound to that request's PA
 3. Declare `Action(name, description, Params, handler, Access.READ | Access.WRITE,
    destructive=True?)`, group actions into a `Tool`, and the tools into a `Toolset` in the package's
    `__init__.py`. Add the toolset to `TOOLSETS` in `toolsets/__init__.py`.
-4. Add `tests/toolsets/test_<toolset>.py`: one wire `Case` per action (method, path, query, body)
-   plus the coverage guard (see `test_projects.py`), then tests for any logic of your own.
+4. Add `tests/toolsets/test_<toolset>.py` with a module-level `CASES` list: at least one wire
+   `Case` per action (method, path, query, body), then tests for any logic of your own. Two
+   suites pick `CASES` up automatically: `tests/toolsets/test_coverage.py` fails if any registered
+   action has no case, and `tests/transport/test_every_tool.py` replays each tool's cases through
+   the real MCP client, validating the arguments against the schema `tools/list` advertises.
 
 Declarations are checked when they're built and again when the registry loads them: invalid or
 duplicate names, `destructive` on a read action, and one parameter name with different shapes

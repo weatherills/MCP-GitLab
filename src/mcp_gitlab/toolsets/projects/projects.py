@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
+from mcp_gitlab.core.errors import GitLabError, GitLabNotFoundError
 from mcp_gitlab.gitlab import Page, encode_segment, project_path
 from mcp_gitlab.tools import Access, Action, ActionContext, ActionParams, PageParams, Tool
 from mcp_gitlab.toolsets.common import NamespaceRef, ProjectRef, Visibility, query
@@ -110,11 +111,32 @@ async def update_project(params: UpdateProjectParams, ctx: ActionContext) -> Any
 
 async def delete_project(params: ProjectParams, ctx: ActionContext) -> Any:
     response = await ctx.gitlab.delete(project_path(params.project))
+    result: dict[str, Any] = {"gitlab_response": response}
+    # PRD-01 section 4: surface GitLab's soft-delete retention, which only a read-back shows.
+    try:
+        project = await ctx.gitlab.get(project_path(params.project))
+    except GitLabNotFoundError:
+        return {
+            **result,
+            "status": "deleted",
+            "note": "GitLab no longer returns the project: it was deleted without a retention "
+            "period and cannot be restored.",
+        }
+    except GitLabError:
+        project = None
+    marked_on = project.get("marked_for_deletion_on") if isinstance(project, dict) else None
+    if marked_on:
+        return {
+            **result,
+            "status": "marked_for_deletion",
+            "marked_for_deletion_on": marked_on,
+            "note": f"GitLab keeps the project until {marked_on}, when it is permanently "
+            "deleted. Until then an Owner can restore it.",
+        }
     return {
+        **result,
         "status": "deletion_requested",
-        "gitlab_response": response,
-        "note": "GitLab deletes projects asynchronously. Where delayed deletion is enabled, the "
-        "project is only marked for deletion and can be restored until it is permanently removed.",
+        "note": "GitLab deletes projects asynchronously; it did not report a retention date.",
     }
 
 

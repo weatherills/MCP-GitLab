@@ -1,6 +1,8 @@
 """Drive real toolset actions through the dispatcher and inspect what reaches GitLab."""
 
+import importlib
 import json
+import pkgutil
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -46,14 +48,40 @@ def body_of(request: httpx.Request) -> Any:
     return json.loads(request.content) if request.content else None
 
 
+def find_request(stub: GitLabStub, case: Case) -> httpx.Request:
+    """The one request the case describes; an action may also make supporting calls."""
+    matching = [
+        request
+        for request in stub.requests
+        if request.method == case.method
+        and request.url.raw_path.decode().split("?")[0] == f"/api/v4{case.path}"
+    ]
+    assert len(matching) == 1, (case.id, [f"{r.method} {r.url}" for r in stub.requests])
+    return matching[0]
+
+
+def assert_request(stub: GitLabStub, case: Case) -> None:
+    request = find_request(stub, case)
+    assert dict(request.url.params) == case.query, case.id
+    assert body_of(request) == case.body, case.id
+
+
 async def assert_wire(case: Case) -> ToolOutcome:
     stub = GitLabStub()
     stub.add(case.method, case.path, case.response)
     outcome = await call(stub, case.tool, case.arguments)
     assert outcome.is_error is False, outcome.structured
-    request = stub.requests[-1]
-    assert request.method == case.method
-    assert request.url.raw_path.decode().split("?")[0] == f"/api/v4{case.path}"
-    assert dict(request.url.params) == case.query
-    assert body_of(request) == case.body
+    assert_request(stub, case)
     return outcome
+
+
+def all_cases() -> list[Case]:
+    """Every wire case, from each tests/toolsets/test_*.py module's CASES list."""
+    import tests.toolsets as package
+
+    cases: list[Case] = []
+    for module in pkgutil.iter_modules(package.__path__):
+        if module.name.startswith("test_"):
+            imported = importlib.import_module(f"{package.__name__}.{module.name}")
+            cases.extend(getattr(imported, "CASES", []))
+    return cases

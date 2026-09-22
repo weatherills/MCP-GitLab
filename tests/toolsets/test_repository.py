@@ -251,13 +251,6 @@ async def test_action_reaches_the_documented_endpoint(case: Case) -> None:
     await assert_wire(case)
 
 
-def test_every_prd02_action_is_covered() -> None:
-    from mcp_gitlab.toolsets.repository import TOOLSET
-
-    declared = {f"{tool.name}.{action.name}" for tool in TOOLSET.tools for action in tool.actions}
-    assert declared == {case.id for case in CASES}
-
-
 async def test_get_returns_text_content_with_metadata() -> None:
     stub = GitLabStub()
     stub.add(
