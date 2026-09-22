@@ -64,8 +64,8 @@ Beyond `127.0.0.1` the server must be reached over HTTPS, and it refuses to star
 The stateless default needs no sticky sessions, so replicas can sit behind any load balancer.
 
 The [`Dockerfile`](Dockerfile) builds a non-root image that binds `0.0.0.0:8080` with a health
-check on `/healthz`; pass `MCP_ALLOWED_HOSTS` and one of the TLS options to `docker run`. The image
-build has not been tested yet.
+check on `/healthz`; pass `MCP_ALLOWED_HOSTS` and one of the TLS options to `docker run`. CI builds
+the image and checks that it reports healthy.
 
 ## Development
 

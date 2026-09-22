@@ -122,7 +122,8 @@ action, since the tool schema shows one description per parameter.
 - **Git: work directly on `main`.** Don't create branches, local or remote — the owner's
   instruction. Commit to `main` and push it; CI runs on every push to `main`.
 - Lint/format: `ruff` (`ruff check .`, `ruff format .`). Types: `mypy --strict` (`mypy src`).
-  Tests: `pytest`. CI runs all three on Python 3.10 and 3.12 — keep them passing.
+  Tests: `pytest`. CI runs all three on Python 3.10 and 3.12, and builds the Docker image and
+  waits for it to report healthy — keep them passing.
 - Per PRD-00 §6: one coarse tool per domain with an `action` discriminator
   (`gitlab_branches(action="list"|"create"|...)`), not one MCP tool per GitLab REST endpoint.
 - Destructive/high-impact actions (each PRD's tables mark them) are declared `destructive=True`,
