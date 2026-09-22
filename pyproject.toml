@@ -7,12 +7,14 @@ license = { file = "LICENSE" }
 authors = [{ name = "The Weatherills Family", email = "brian@weatherills.com" }]
 requires-python = ">=3.10"
 dependencies = [
-    # Official MCP SDK. Do not assume the latest release matches this project's
-    # target protocol revision (2025-11-25) without checking first -
-    # see CLAUDE.md, "Before you write server.py".
-    "mcp[cli]",
-    "httpx>=0.27",
-    "pydantic-settings>=2.0",
+    # 2.x serves protocol 2025-11-25 (PRD-00's target) and 2026-07-28 from one endpoint.
+    "mcp>=2.2,<3",
+    "httpx>=0.28",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "starlette>=1.0",
+    "uvicorn>=0.30",
+    "anyio>=4.0",
 ]
 
 [project.optional-dependencies]
@@ -21,10 +23,11 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.6",
     "mypy>=1.11",
+    "httpx2",
 ]
 
 [project.scripts]
-mcp-gitlab = "mcp_gitlab.server:main"
+mcp-gitlab = "mcp_gitlab.__main__:main"
 
 [build-system]
 requires = ["hatchling"]
