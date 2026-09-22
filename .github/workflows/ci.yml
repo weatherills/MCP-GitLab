@@ -20,3 +20,42 @@ jobs:
       - run: ruff check .
       - run: mypy src
       - run: pytest
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t mcp-gitlab:ci .
+      - name: Check the image runs as the non-root user
+        run: test "$(docker image inspect --format '{{.Config.User}}' mcp-gitlab:ci)" = 10001
+      - name: Start the container
+        run: >-
+          docker run -d --name mcp-gitlab
+          -e MCP_ALLOWED_HOSTS=localhost
+          -e MCP_TLS_TERMINATED_UPSTREAM=true
+          -p 8080:8080
+          mcp-gitlab:ci
+      - name: Wait for /healthz
+        run: curl -fsS --retry 30 --retry-delay 1 --retry-all-errors http://localhost:8080/healthz
+      - name: Wait for the Docker health check to report healthy
+        run: |
+          for _ in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' mcp-gitlab)
+            echo "health: $status"
+            case "$status" in
+              healthy) exit 0 ;;
+              unhealthy) exit 1 ;;
+            esac
+            sleep 2
+          done
+          exit 1
+      - name: Show the container's logs and health checks
+        if: failure()
+        run: |
+          docker logs mcp-gitlab || true
+          docker inspect --format '{{json .State.Health}}' mcp-gitlab || true
+      - name: Stop the container
+        if: always()
+        run: docker rm -f mcp-gitlab || true
