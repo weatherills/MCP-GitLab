@@ -17,21 +17,22 @@ Personal Access Tokens (PATs).
   What remains is the owner's review of the PRDs and their open questions.
 - The PRDs in `docs/prd/` are the spec ("true north"). Every PRD still reads `Status: Draft`: they
   were merged before formal review, at the owner's direction, and the owner is reviewing them now.
-  Each implemented PRD carries a **Revised 2026-09-22** note listing what implementation changed.
+  Each implemented PRD carries a **Revised 2026-09-22** note listing what implementation changed,
+  and most carry a **2026-09-23** note for what was added from their out-of-scope lists since.
   The same PRDs live in the review doc at
   https://claude.ai/code/artifact/5f511063-0ef0-4575-bdec-7300ece02c5a — keep the two in sync.
 
 | PRD | Toolset | Domain | State |
 |---|---|---|---|
 | PRD-00 | — | Architecture, transport, auth (read first) | Built |
-| PRD-01 | `projects` | Projects, branches, tags | Built |
+| PRD-01 | `projects` | Projects, branches, tags, badges | Built |
 | PRD-02 | `repository` | File tree, files, directories, commits, diffs | Built |
-| PRD-03 | `merge_requests` | MRs, discussions, approvals, merge | Built |
-| PRD-04 | `issues` | Issues, labels, milestones | Built |
-| PRD-05 | `pipelines` | CI/CD pipelines, jobs, variables | Built |
+| PRD-03 | `merge_requests` | MRs, discussions, draft reviews, approvals, merge, time tracking | Built |
+| PRD-04 | `issues` | Issues, project and group labels and milestones, time tracking | Built |
+| PRD-05 | `pipelines` | CI/CD pipelines, jobs, variables, schedules, runners | Built |
 | PRD-06 | `releases` | Releases, release links | Built |
 | PRD-07 | `search` | Global/group/project search | Built |
-| PRD-08 | `collaboration` | Members, users, webhooks, wikis | Built |
+| PRD-08 | `collaboration` | Members, users, webhooks, wikis, snippets | Built |
 
 ## Owner requirements (non-negotiable)
 
@@ -170,6 +171,18 @@ won't be; keep it current when you add a limitation or make a decision.
   `mcp_gitlab.standalone` supervises both, with no init system. Caddy's logs leave out request
   headers: it logs each request it fails with a 5xx, headers included, and redacts
   `Authorization` but not `PRIVATE-TOKEN` (PRD-00 §9).
+- **Secrets stay write-only as the tools grow:** pipeline schedule variable values are hidden
+  unless `get` has `reveal_values: true`; webhook custom header and URL variable values are never
+  returned; runner registration and token resets are left out, since they answer with a token
+  (PRD-05, PRD-08).
+- **Read or split a write when GitLab would lose data:** `update_draft_note` sends the draft's
+  diff position back, and a webhook `update` that changes the URL sends custom headers in a
+  second request (PRD-03, PRD-08).
+- **`publish_review` posts its summary as an ordinary comment** and sets no reviewer state:
+  `bulk_publish` takes either only from GitLab 19.2, and older versions drop them silently
+  (PRD-03).
+- **Labels and milestones take `project` or `group`** through `ProjectOrGroup`; new snippets are
+  private unless told otherwise (PRD-04, PRD-08).
 - **Not built:** PRD-00 §10's per-caller outbound rate limit (needs shared state; PRD-00 §13 Q4).
 
 ## Running things

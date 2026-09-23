@@ -10,7 +10,8 @@
 > every toolset. `MCP_JSON_RESPONSE` (§8) lets a deployment answer with plain JSON instead of SSE
 > (§4.2). **2026-09-23:** §9 adds the standalone image, in which Caddy terminates TLS in front of
 > the server in one container, and §8 lists its two settings. Host names now match without
-> regard to case (§4.3), and `MCP_MAX_REQUEST_BYTES` caps each request body (§8, §10).
+> regard to case (§4.3), and `MCP_MAX_REQUEST_BYTES` caps each request body (§8, §10). With the
+> tools PRD-01 to PRD-08 added, §6's figure for the size of `tools/list` is updated.
 
 ## 1. Overview
 
@@ -162,7 +163,7 @@ directly, since it's the most-deployed precedent at this scale (96 tools across 
   tool count, not a mandate to declare that many separate MCP tool schemas.
 - Toolset selection is configurable two ways, mirroring GitHub's remote server:
   - **Env var** at deploy time: `GITLAB_MCP_TOOLSETS=repository,merge_requests,issues` (default:
-    every toolset. Their 22 tools take about 76 KB of tool definitions in `tools/list`, so a
+    every toolset. Their 26 tools take about 100 KB of tool definitions in `tools/list`, so a
     deployment, or a client with the header below, can narrow the set to save model context).
   - **Per-request header** on the remote HTTP server: `X-MCP-Toolsets`, so one deployment can
     serve different tool subsets to different clients without a redeploy. The header selects

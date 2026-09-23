@@ -83,7 +83,10 @@ Imposed by GitLab:
 - **Job logs are downloaded whole** to return their tail, up to `GITLAB_MAX_RESPONSE_BYTES`,
   because GitLab's trace endpoint takes no range. (PRD-05 §4)
 - **Changing a webhook's URL drops its secret token and custom headers.** GitLab does this; the
-  tool warns when it may have happened. (PRD-08)
+  tool warns when it may have happened, and applies custom headers sent in the same update after
+  the URL change. (PRD-08)
+- **A project can't change the labels and milestones it inherits from a group.** GitLab answers
+  `404`; the error says to give `group` instead of `project`. (PRD-04)
 
 ## Design decisions
 
@@ -145,7 +148,7 @@ GitLab calls:
 
 Tools:
 
-- **One coarse tool per domain,** taking an `action` argument: 22 tools rather than one per GitLab
+- **One coarse tool per domain,** taking an `action` argument: 26 tools rather than one per GitLab
   endpoint. (PRD-00 §6)
 - **`confirm: true` is required by** `gitlab_projects.delete` and `transfer`,
   `gitlab_branches.delete` and `delete_merged`, `gitlab_merge_requests.merge`,
@@ -156,6 +159,8 @@ Tools:
   `<dir>/.gitkeep`, since Git stores no empty directories. A file `update` or `delete` needs
   `last_commit_id`, so a concurrent edit surfaces as GitLab's conflict error. (PRD-02 §4)
 - **`gitlab_issues.list` defaults to open issues;** GitLab's own default is every state. (PRD-04)
+- **Labels and milestones take `project` or `group`,** exactly one, and group labels have no
+  priority, which GitLab sets per project. (PRD-04)
 - **A refused merge** comes back as `merge_blocked` or `merge_pending`, with GitLab's
   `detailed_merge_status` and a next step. (PRD-03)
 - **Draft reviews:** `update_draft_note` reads the draft first and sends its diff position back,
