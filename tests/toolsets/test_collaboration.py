@@ -541,6 +541,26 @@ async def test_a_missing_direct_member_points_to_inherited_access() -> None:
     assert "inherited" in error["details"]["hint"]
 
 
+async def test_a_missing_member_with_inherited_access_gets_no_hint() -> None:
+    # The hint says to try inherited access, which this call already did.
+    stub = GitLabStub()
+    stub.add(
+        "GET", f"{P}/members/all/7", StubResponse(status=404, json={"message": "404 Not found"})
+    )
+    arguments = {"action": "get", "project": "grp/app", "user_id": 7, "inherited": True}
+    error = await fail(stub, "gitlab_members", arguments)
+    assert error["code"] == "gitlab_not_found"
+    assert "hint" not in error["details"]
+
+
+@pytest.mark.parametrize("who", [{}, {"user_id": 7, "username": "ada"}])
+async def test_get_user_names_exactly_one_user(who: dict[str, Any]) -> None:
+    stub = GitLabStub()
+    error = await fail(stub, "gitlab_users", {"action": "get", **who})
+    assert error["code"] == "invalid_arguments"
+    assert stub.requests == []
+
+
 async def test_adding_an_existing_member_points_to_update() -> None:
     stub = GitLabStub()
     stub.add(
@@ -707,6 +727,18 @@ async def test_webhook_secrets_never_come_back(
     assert hook["custom_headers"] == [{"key": "Authorization"}]
     assert hook["url_variables"] == [{"key": "tenant"}]
     assert hook["token_present"] is True
+
+
+async def test_custom_headers_in_an_unexpected_shape_are_never_shown() -> None:
+    # If GitLab ever sent the headers some other way, show nothing rather than their values.
+    stub = GitLabStub()
+    hook = {"id": 3, "custom_headers": "Authorization: Bearer header-secret"}
+    stub.add("GET", f"{P}/hooks/3", StubResponse(json=hook))
+    result = await succeed(
+        stub, "gitlab_webhooks", {"action": "get", "project": "grp/app", "hook_id": 3}
+    )
+    assert result["custom_headers"] == []
+    assert "header-secret" not in str(result)
 
 
 async def test_the_secret_token_reaches_gitlab_but_not_the_logs(

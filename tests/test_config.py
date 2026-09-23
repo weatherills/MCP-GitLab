@@ -85,11 +85,25 @@ def test_non_loopback_bind_rejects_browser_origins_by_default() -> None:
 
 @pytest.mark.parametrize(
     ("host", "expected"),
-    [("127.0.0.1", True), ("localhost", True), ("::1", True), ("[::1]", True), ("0.0.0.0", False)],
+    [
+        ("127.0.0.1", True),
+        ("localhost", True),
+        ("::1", True),
+        ("[::1]", True),
+        ("0.0.0.0", False),
+        # A host name other than localhost may resolve anywhere, so it never counts as loopback.
+        ("mcp.internal", False),
+        ("localhost.example.com", False),
+    ],
 )
 def test_loopback_detection(host: str, expected: bool) -> None:
     settings = Settings(mcp_bind_host=host, mcp_allowed_hosts="mcp.example.com")
     assert settings.is_loopback_bind is expected
+
+
+def test_explicit_browser_origins_replace_the_loopback_defaults() -> None:
+    settings = Settings(mcp_allowed_origins="https://app.example.com, https://ide.example.com")
+    assert settings.allowed_origins() == ["https://app.example.com", "https://ide.example.com"]
 
 
 def test_toolset_allowlist_parsing(monkeypatch: pytest.MonkeyPatch) -> None:

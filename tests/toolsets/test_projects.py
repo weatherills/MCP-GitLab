@@ -228,6 +228,8 @@ CASES = [
         f"{P}/fork",
         body={"namespace_id": 314},
     ),
+    # Without a namespace, GitLab forks into the caller's own.
+    Case("gitlab_projects", {"action": "fork", "project": "grp/app"}, "POST", f"{P}/fork", body={}),
     Case(
         "gitlab_projects",
         {"action": "get", "project": "grp/app", "statistics": True, "license": True},

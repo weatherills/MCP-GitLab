@@ -133,6 +133,43 @@ async def test_non_json_error_body_is_passed_as_text() -> None:
     assert excinfo.value.details["gitlab_message"] == "Bad things happened"
 
 
+async def test_a_success_that_is_not_json_is_an_error() -> None:
+    # A proxy's login or maintenance page in front of GitLab, say.
+    stub = GitLabStub()
+    stub.add("GET", "/projects/9", StubResponse(content=b"<html>Sign in</html>"))
+    with pytest.raises(GitLabError, match="not valid JSON") as excinfo:
+        await make_client(stub).session(TOKEN).get("/projects/9")
+    assert excinfo.value.status == 200
+
+
+async def test_an_error_body_without_a_message_is_passed_through_whole() -> None:
+    stub = GitLabStub()
+    stub.add("GET", "/broken", StubResponse(status=400, json={"detail": "bad ref"}))
+    with pytest.raises(GitLabBadRequestError) as excinfo:
+        await make_client(stub).session(TOKEN).get("/broken")
+    assert excinfo.value.details["gitlab_message"] == {"detail": "bad ref"}
+
+
+@pytest.mark.parametrize("body", [{"detail": "x" * 5000}, {"message": {"name": ["taken " * 1000]}}])
+async def test_long_error_messages_are_cut_to_a_bound(body: dict[str, object]) -> None:
+    stub = GitLabStub()
+    stub.add("GET", "/broken", StubResponse(status=400, json=body))
+    with pytest.raises(GitLabBadRequestError) as excinfo:
+        await make_client(stub).session(TOKEN).get("/broken")
+    message = excinfo.value.details["gitlab_message"]
+    assert isinstance(message, str) and len(message) == 2000
+    assert len(excinfo.value.message) < 2200
+
+
+async def test_a_rate_limit_without_a_hint_is_retried_with_backoff() -> None:
+    stub, sleep = GitLabStub(), RecordingSleep()
+    stub.add("GET", "/projects", StubResponse(status=429))
+    with pytest.raises(GitLabRateLimitedError) as excinfo:
+        await make_client(stub, sleep).session(TOKEN).get("/projects")
+    assert len(sleep.delays) == 3
+    assert "retry_after_seconds" not in excinfo.value.details
+
+
 async def test_rate_limit_retries_after_hinted_delay() -> None:
     stub, sleep = GitLabStub(), RecordingSleep()
     stub.add(

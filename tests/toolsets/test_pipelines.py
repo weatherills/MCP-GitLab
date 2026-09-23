@@ -503,6 +503,46 @@ async def test_a_job_without_artifacts_says_so() -> None:
     assert outcome.structured == {"items": [], "note": "This job has no artifacts."}
 
 
+async def test_a_manual_job_plays_without_a_body_when_given_no_variables() -> None:
+    stub = GitLabStub()
+    stub.add("POST", f"{JOB}/play", StubResponse(json={"id": 5, "status": "pending"}))
+    await call(stub, "gitlab_jobs", {"action": "play", "project": "grp/app", "job_id": 5})
+    assert stub.requests[0].content == b""
+
+
+async def test_artifact_listing_can_recurse() -> None:
+    stub = GitLabStub()
+    stub.add("GET", f"{JOB}/artifacts/tree", StubResponse(json=[]))
+    arguments = {"action": "list_artifacts", "project": "grp/app", "job_id": 5, "recursive": True}
+    await call(stub, "gitlab_jobs", arguments)
+    assert dict(stub.requests[0].url.params) == {**PAGE, "recursive": "true"}
+
+
+async def test_a_refused_pipeline_delete_names_the_role_it_needs() -> None:
+    stub = GitLabStub()
+    stub.add("DELETE", PIPE, StubResponse(status=403, json={"message": "403 Forbidden"}))
+    arguments = {"action": "delete", "project": "grp/app", "pipeline_id": 77, "confirm": True}
+    outcome = await call(stub, "gitlab_pipelines", arguments)
+    error = outcome.structured["error"]
+    assert error["code"] == "gitlab_forbidden"
+    assert "Owner role" in error["details"]["hint"]
+
+
+async def test_a_variable_update_needs_a_change() -> None:
+    stub = GitLabStub()
+    arguments = {"action": "update", "project": "grp/app", "key": "DEPLOY_TOKEN"}
+    outcome = await call(stub, "gitlab_ci_variables", arguments)
+    assert outcome.structured["error"]["code"] == "invalid_arguments"
+    assert stub.requests == []
+
+
+async def test_runner_jobs_can_be_listed_without_a_filter() -> None:
+    stub = GitLabStub()
+    stub.add("GET", "/runners/6/jobs", StubResponse(json=[]))
+    await call(stub, "gitlab_runners", {"action": "list_jobs", "runner_id": 6})
+    assert dict(stub.requests[0].url.params) == PAGE
+
+
 async def test_pipeline_delete_requires_confirmation() -> None:
     stub = GitLabStub()
     outcome = await call(

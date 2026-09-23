@@ -72,6 +72,12 @@ def test_retry_after_seconds_parses_http_date() -> None:
     assert retry_after_seconds(headers, now=lambda: NOW) == 30.0
 
 
+def test_retry_after_seconds_reads_a_date_without_a_zone_as_utc() -> None:
+    # RFC 5322's -0000 means "no zone given", which Python parses to a naive datetime.
+    headers = {"retry-after": "Tue, 22 Sep 2026 12:00:30 -0000"}
+    assert retry_after_seconds(headers, now=lambda: NOW) == 30.0
+
+
 def test_retry_after_seconds_falls_back_to_ratelimit_reset() -> None:
     headers = {"ratelimit-reset": str(int(NOW.timestamp()) + 45)}
     assert retry_after_seconds(headers, now=lambda: NOW) == 45.0

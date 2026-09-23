@@ -1,5 +1,6 @@
 import json
 import logging
+import sys
 
 import pytest
 
@@ -93,3 +94,29 @@ def test_request_id_is_scoped() -> None:
             assert current_request_id() == "inner"
         assert current_request_id() == "outer"
     assert current_request_id() is None
+
+
+def _failure_record() -> logging.LogRecord:
+    """A record carrying a traceback whose message holds a PAT, as a failed GitLab call might."""
+    try:
+        raise RuntimeError("request failed with PRIVATE-TOKEN: glpat-abcdefghijklmnopqrstu")
+    except RuntimeError:
+        return logging.LogRecord(
+            "test", logging.ERROR, __file__, 1, "tool_call_failed", None, sys.exc_info()
+        )
+
+
+def test_json_formatter_redacts_tracebacks() -> None:
+    entry = json.loads(JsonFormatter().format(_failure_record()))
+    assert "RuntimeError" in entry["exception"]
+    assert "glpat-" not in entry["exception"]
+    assert REDACTED in entry["exception"]
+
+
+def test_text_formatter_adds_the_request_id_and_redacts_tracebacks() -> None:
+    with bind_request_id("req-2"):
+        text = TextFormatter().format(_failure_record())
+    first_line, traceback = text.split("\n", 1)
+    assert first_line.endswith("request_id=req-2")
+    assert "RuntimeError" in traceback
+    assert "glpat-" not in text

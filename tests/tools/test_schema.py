@@ -72,6 +72,35 @@ def test_conflicting_parameter_shapes_are_rejected() -> None:
         build_input_schema(tool, tool.actions)
 
 
+def test_nested_models_of_one_name_must_agree_across_actions() -> None:
+    # Each action's JSON schema names nested models by class name, and the tool shares one $defs.
+    def entry_model(value_type: type) -> type[ActionParams]:
+        class Entry(ActionParams):
+            key: str
+            value: value_type  # type: ignore[valid-type]
+
+        return Entry
+
+    first, second = entry_model(str), entry_model(int)
+
+    class A(ActionParams):
+        entries: list[first] | None = None  # type: ignore[valid-type]
+
+    class B(ActionParams):
+        others: list[second] | None = None  # type: ignore[valid-type]
+
+    tool = Tool(
+        name="t",
+        description="d",
+        actions=(
+            Action("a", "a", A, list_gadgets, Access.READ),
+            Action("b", "b", B, list_gadgets, Access.READ),
+        ),
+    )
+    with pytest.raises(SchemaConflictError, match="nested model 'Entry'"):
+        build_input_schema(tool, tool.actions)
+
+
 def test_a_parameter_optional_for_one_action_and_required_for_another_is_one_parameter() -> None:
     class Create(ActionParams):
         title: str = Field(min_length=1, description="Title.")

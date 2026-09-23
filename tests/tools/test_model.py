@@ -56,6 +56,11 @@ def test_tool_needs_actions() -> None:
         Tool(name="t", description="d", actions=())
 
 
+def test_toolset_needs_tools() -> None:
+    with pytest.raises(ValueError, match="no tools"):
+        Toolset(name="empty", description="d", tools=())
+
+
 def test_toolset_name_all_is_reserved() -> None:
     tool = Tool(name="t", description="d", actions=(action(),))
     with pytest.raises(ValueError, match="reserved"):

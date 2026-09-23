@@ -92,6 +92,53 @@ async def test_a_body_without_a_length_is_counted_as_it_arrives() -> None:
     assert response.status_code == 413
 
 
+async def test_a_client_that_leaves_mid_body_reaches_nothing_downstream() -> None:
+    from starlette.types import Message, Receive, Scope, Send
+
+    from mcp_gitlab.transport.http import LimitRequestBody
+
+    reached: list[Scope] = []
+    sent: list[Message] = []
+    arriving: list[Message] = [
+        {"type": "http.request", "body": b'{"jsonrpc":', "more_body": True},
+        {"type": "http.disconnect"},
+    ]
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        reached.append(scope)
+
+    async def receive() -> Message:
+        return arriving.pop(0)
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    scope: Scope = {"type": "http", "method": "POST", "headers": []}
+    await LimitRequestBody(app, 1024)(scope, receive, send)
+    assert reached == [] and sent == [] and arriving == []
+
+
+async def test_host_normalisation_leaves_other_scopes_alone() -> None:
+    from starlette.types import Message, Receive, Scope, Send
+
+    from mcp_gitlab.transport.http import NormalizeHost
+
+    reached: list[Scope] = []
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        reached.append(scope)
+
+    async def receive() -> Message:
+        return {"type": "lifespan.startup"}
+
+    async def send(message: Message) -> None:
+        pass
+
+    scope: Scope = {"type": "lifespan"}
+    await NormalizeHost(app)(scope, receive, send)
+    assert reached == [scope] and reached[0] is scope
+
+
 async def test_a_body_at_the_limit_is_served() -> None:
     body = json.dumps(INITIALIZE).encode()
 

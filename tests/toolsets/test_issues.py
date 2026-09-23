@@ -392,6 +392,26 @@ async def test_move_resolves_a_target_path_to_its_id() -> None:
     assert body_of(stub.requests[-1]) == {"to_project_id": 55}
 
 
+async def test_move_takes_a_numeric_path_as_an_id_without_a_lookup() -> None:
+    stub = GitLabStub()
+    stub.add("POST", f"{ISSUE}/move", StubResponse(status=201, json={"iid": 1}))
+    await call(stub, "gitlab_issues", {"action": "move", **REF, "to_project": "42"})
+    assert stub.paths() == [f"/api/v4{ISSUE}/move"]
+    assert body_of(stub.requests[0]) == {"to_project_id": 42}
+
+
+async def test_a_link_can_say_how_the_issues_relate() -> None:
+    stub = GitLabStub()
+    stub.add("POST", f"{ISSUE}/links", StubResponse(status=201, json={}))
+    arguments = {"target_project": 7, "target_issue_iid": 3, "link_type": "blocks"}
+    await call(stub, "gitlab_issues", {"action": "link", **REF, **arguments})
+    assert body_of(stub.requests[0]) == {
+        "target_project_id": 7,
+        "target_issue_iid": 3,
+        "link_type": "blocks",
+    }
+
+
 async def test_a_new_label_needs_a_color() -> None:
     outcome = await call(
         GitLabStub(), "gitlab_labels", {"action": "create", "project": "grp/app", "name": "p1"}

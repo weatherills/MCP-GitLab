@@ -146,3 +146,18 @@ async def test_tool_call_log_records_argument_names_not_values(
 )
 def test_results_are_normalised_to_objects(result: object, expected: dict[str, object]) -> None:
     assert _structured(result) == expected
+
+
+def test_a_model_result_is_dumped_as_json_values() -> None:
+    from datetime import date
+
+    from pydantic import BaseModel
+
+    class Release(BaseModel):
+        tag: str
+        released_on: date
+
+    assert _structured(Release(tag="v1", released_on=date(2026, 9, 23))) == {
+        "tag": "v1",
+        "released_on": "2026-09-23",
+    }

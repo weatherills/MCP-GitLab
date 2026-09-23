@@ -564,6 +564,7 @@ async def test_a_draft_reply_can_resolve_its_thread() -> None:
         {"resolve_discussion": True},
         {"file_path": "app.py"},
         {"old_path": "old.py", "new_line": 3},
+        {"old_path": "old.py"},
     ],
 )
 async def test_a_draft_note_must_say_where_it_goes(arguments: dict[str, object]) -> None:
@@ -573,6 +574,24 @@ async def test_a_draft_note_must_say_where_it_goes(arguments: dict[str, object])
     )
     assert outcome.structured["error"]["code"] == "invalid_arguments"
     assert stub.requests == []
+
+
+async def test_a_comment_on_a_removed_line_is_anchored_to_the_old_file() -> None:
+    stub = GitLabStub()
+    stub.add("GET", MR, StubResponse(json={"diff_refs": DIFF_REFS}))
+    stub.add("POST", f"{MR}/discussions", StubResponse(status=201, json={"id": "d3"}))
+    arguments = {"file_path": "app.py", "old_path": "legacy.py", "old_line": 12, "body": "Why?"}
+    outcome = await call(
+        stub, "gitlab_mr_reviews", {"action": "create_discussion", **REF, **arguments}
+    )
+    assert outcome.is_error is False
+    assert body_of(stub.requests[-1])["position"] == {
+        "position_type": "text",
+        **DIFF_REFS,
+        "new_path": "app.py",
+        "old_path": "legacy.py",
+        "old_line": 12,
+    }
 
 
 async def test_editing_a_draft_keeps_it_on_its_diff_line() -> None:
