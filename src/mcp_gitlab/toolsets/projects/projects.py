@@ -9,6 +9,11 @@ from mcp_gitlab.gitlab import Page, encode_segment, project_path
 from mcp_gitlab.tools import Access, Action, ActionContext, ActionParams, PageParams, Tool
 from mcp_gitlab.toolsets.common import NamespaceRef, ProjectRef, Visibility, query
 
+NAMESPACE_HELP = (
+    "Group or user namespace, as an ID or full path: where to create, fork, or move the project. "
+    "create and fork default to the caller's own namespace."
+)
+
 
 class ListProjectsParams(PageParams):
     search: str | None = Field(
@@ -27,6 +32,24 @@ class ProjectParams(ActionParams):
     project: ProjectRef
 
 
+class GetProjectParams(ProjectParams):
+    statistics: bool | None = Field(
+        default=None,
+        description="Include storage statistics: repository, LFS, and artifact sizes, and commit "
+        "count (needs the Reporter role).",
+    )
+    license: bool | None = Field(default=None, description="Include the detected license.")
+
+
+class TransferProjectParams(ProjectParams):
+    namespace: NamespaceRef = Field(description=NAMESPACE_HELP)
+
+
+class ListTransferLocationsParams(PageParams):
+    project: ProjectRef
+    search: str | None = Field(default=None, description="Only namespaces matching this text.")
+
+
 class ListForksParams(PageParams):
     project: ProjectRef
     search: str | None = Field(
@@ -38,9 +61,7 @@ class ListForksParams(PageParams):
 class CreateProjectParams(ActionParams):
     name: str | None = Field(default=None, min_length=1, description="Project name.")
     path: str | None = Field(default=None, min_length=1, description="Project path (URL slug).")
-    namespace: NamespaceRef | None = Field(
-        default=None, description="Owning group or user namespace; defaults to the caller's own."
-    )
+    namespace: NamespaceRef | None = Field(default=None, description=NAMESPACE_HELP)
     description: str | None = Field(default=None, description="Project description.")
     visibility: Visibility | None = Field(default=None, description="Visibility level.")
     initialize_with_readme: bool = Field(
@@ -49,6 +70,12 @@ class CreateProjectParams(ActionParams):
     )
     default_branch: str | None = Field(
         default=None, min_length=1, description="Default branch name."
+    )
+    template_name: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Start from one of GitLab's built-in project templates, such as rails, "
+        "express, or plainhtml.",
     )
 
     @model_validator(mode="after")
@@ -81,9 +108,7 @@ class UpdateProjectParams(ActionParams):
 
 class ForkProjectParams(ActionParams):
     project: ProjectRef
-    namespace: NamespaceRef | None = Field(
-        default=None, description="Owning group or user namespace; defaults to the caller's own."
-    )
+    namespace: NamespaceRef | None = Field(default=None, description=NAMESPACE_HELP)
     name: str | None = Field(default=None, min_length=1, description="Project name.")
     path: str | None = Field(default=None, min_length=1, description="Project path (URL slug).")
     description: str | None = Field(default=None, description="Project description.")
@@ -94,8 +119,37 @@ async def list_projects(params: ListProjectsParams, ctx: ActionContext) -> Page:
     return await ctx.gitlab.get_page("/projects", params=query(params))
 
 
-async def get_project(params: ProjectParams, ctx: ActionContext) -> Any:
-    return await ctx.gitlab.get(project_path(params.project))
+async def get_project(params: GetProjectParams, ctx: ActionContext) -> Any:
+    return await ctx.gitlab.get(project_path(params.project), params=query(params))
+
+
+async def get_languages(params: ProjectParams, ctx: ActionContext) -> Any:
+    return await ctx.gitlab.get(f"{project_path(params.project)}/languages")
+
+
+async def transfer_project(params: TransferProjectParams, ctx: ActionContext) -> Any:
+    target = params.namespace
+    project = await ctx.gitlab.put(
+        f"{project_path(params.project)}/transfer", json_body={"namespace": str(target)}
+    )
+    namespace = project.get("namespace") if isinstance(project, dict) else None
+    moved = isinstance(namespace, dict) and (
+        str(namespace.get("id")) == str(target) or namespace.get("full_path") == target
+    )
+    if moved:
+        return {"status": "transferred", "project": project}
+    return {
+        "status": "queued",
+        "project": project,
+        "note": "GitLab moves the project in the background; get the project again to see its "
+        "new path. Its old URL redirects once the move is done.",
+    }
+
+
+async def list_transfer_locations(params: ListTransferLocationsParams, ctx: ActionContext) -> Page:
+    return await ctx.gitlab.get_page(
+        f"{project_path(params.project)}/transfer_locations", params=query(params)
+    )
 
 
 async def create_project(params: CreateProjectParams, ctx: ActionContext) -> Any:
@@ -194,7 +248,20 @@ PROJECTS_TOOL = Tool(
             list_projects,
             Access.READ,
         ),
-        Action("get", "Get one project's details.", ProjectParams, get_project, Access.READ),
+        Action(
+            "get",
+            "Get one project's details, optionally with storage statistics and its license.",
+            GetProjectParams,
+            get_project,
+            Access.READ,
+        ),
+        Action(
+            "get_languages",
+            "Get the share of each programming language in the repository, in percent.",
+            ProjectParams,
+            get_languages,
+            Access.READ,
+        ),
         Action(
             "create",
             "Create a project (repository).",
@@ -231,5 +298,21 @@ PROJECTS_TOOL = Tool(
         Action("star", "Star a project.", ProjectParams, star_project, Access.WRITE),
         Action("unstar", "Unstar a project.", ProjectParams, unstar_project, Access.WRITE),
         Action("list_forks", "List a project's forks.", ListForksParams, list_forks, Access.READ),
+        Action(
+            "transfer",
+            "Move a project to another group or user namespace; its path and URL change, and "
+            "the old URL redirects.",
+            TransferProjectParams,
+            transfer_project,
+            Access.WRITE,
+            destructive=True,
+        ),
+        Action(
+            "list_transfer_locations",
+            "List the namespaces this project can be transferred to.",
+            ListTransferLocationsParams,
+            list_transfer_locations,
+            Access.READ,
+        ),
     ),
 )

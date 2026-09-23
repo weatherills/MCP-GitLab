@@ -1,4 +1,4 @@
-"""PRD-01 toolset `projects`: gitlab_projects, gitlab_branches, gitlab_tags."""
+"""PRD-01 toolset `projects`: gitlab_projects, gitlab_branches, gitlab_tags, gitlab_badges."""
 
 import pytest
 
@@ -191,6 +191,141 @@ CASES = [
         {"page": "1", "per_page": "20"},
         response=LIST,
     ),
+    # A lightweight tag, and protection at GitLab's default levels: nothing unset is sent.
+    Case(
+        "gitlab_tags",
+        {"action": "create", "project": "grp/app", "tag": "v1.2.1", "ref": "main"},
+        "POST",
+        f"{P}/repository/tags",
+        body={"tag_name": "v1.2.1", "ref": "main"},
+    ),
+    Case(
+        "gitlab_tags",
+        {"action": "protect", "project": "grp/app", "tag": "v*"},
+        "POST",
+        f"{P}/protected_tags",
+        body={"name": "v*"},
+    ),
+    Case(
+        "gitlab_branches",
+        {"action": "protect", "project": "grp/app", "branch": "main"},
+        "POST",
+        f"{P}/protected_branches",
+        body={"name": "main"},
+    ),
+    # A namespace given as a numeric string is an ID, so no lookup is made.
+    Case(
+        "gitlab_projects",
+        {"action": "create", "path": "svc", "namespace": "314"},
+        "POST",
+        "/projects",
+        body={"path": "svc", "namespace_id": 314, "initialize_with_readme": False},
+    ),
+    Case(
+        "gitlab_projects",
+        {"action": "fork", "project": "grp/app", "namespace": 314},
+        "POST",
+        f"{P}/fork",
+        body={"namespace_id": 314},
+    ),
+    Case(
+        "gitlab_projects",
+        {"action": "get", "project": "grp/app", "statistics": True, "license": True},
+        "GET",
+        P,
+        {"statistics": "true", "license": "true"},
+    ),
+    Case(
+        "gitlab_projects",
+        {"action": "get_languages", "project": "grp/app"},
+        "GET",
+        f"{P}/languages",
+        response=StubResponse(json={"Python": 91.5, "Shell": 8.5}),
+    ),
+    Case(
+        "gitlab_projects",
+        {"action": "create", "name": "Site", "template_name": "plainhtml"},
+        "POST",
+        "/projects",
+        body={"name": "Site", "initialize_with_readme": False, "template_name": "plainhtml"},
+    ),
+    Case(
+        "gitlab_projects",
+        {"action": "transfer", "project": "grp/app", "namespace": "platform", "confirm": True},
+        "PUT",
+        f"{P}/transfer",
+        body={"namespace": "platform"},
+        response=StubResponse(json={"id": 9, "namespace": {"id": 5, "full_path": "platform"}}),
+    ),
+    Case(
+        "gitlab_projects",
+        {"action": "list_transfer_locations", "project": "grp/app", "search": "plat"},
+        "GET",
+        f"{P}/transfer_locations",
+        {"page": "1", "per_page": "20", "search": "plat"},
+        response=LIST,
+    ),
+    Case(
+        "gitlab_badges",
+        {"action": "list", "project": "grp/app", "name": "coverage"},
+        "GET",
+        f"{P}/badges",
+        {"page": "1", "per_page": "20", "name": "coverage"},
+        response=LIST,
+    ),
+    Case(
+        "gitlab_badges",
+        {"action": "get", "project": "grp/app", "badge_id": 3},
+        "GET",
+        f"{P}/badges/3",
+    ),
+    Case(
+        "gitlab_badges",
+        {
+            "action": "create",
+            "project": "grp/app",
+            "link_url": "https://gitlab.example.com/%{project_path}/-/pipelines",
+            "image_url": "https://gitlab.example.com/%{project_path}/badges/%{default_branch}/pipeline.svg",
+            "name": "pipeline",
+        },
+        "POST",
+        f"{P}/badges",
+        body={
+            "link_url": "https://gitlab.example.com/%{project_path}/-/pipelines",
+            "image_url": "https://gitlab.example.com/%{project_path}/badges/%{default_branch}/pipeline.svg",
+            "name": "pipeline",
+        },
+        response=StubResponse(status=201, json={"id": 3}),
+    ),
+    Case(
+        "gitlab_badges",
+        {"action": "update", "project": "grp/app", "badge_id": 3, "name": "ci"},
+        "PUT",
+        f"{P}/badges/3",
+        body={"name": "ci"},
+    ),
+    Case(
+        "gitlab_badges",
+        {"action": "delete", "project": "grp/app", "badge_id": 3},
+        "DELETE",
+        f"{P}/badges/3",
+        response=StubResponse(status=204),
+    ),
+    Case(
+        "gitlab_badges",
+        {
+            "action": "preview",
+            "project": "grp/app",
+            "link_url": "https://ci.example.com/%{project_path}",
+            "image_url": "https://ci.example.com/%{project_path}/badge.svg",
+        },
+        "GET",
+        f"{P}/badges/render",
+        {
+            "link_url": "https://ci.example.com/%{project_path}",
+            "image_url": "https://ci.example.com/%{project_path}/badge.svg",
+        },
+    ),
 ]
 
 
@@ -291,4 +426,46 @@ async def test_unknown_access_level_is_rejected() -> None:
 
 async def test_blank_project_is_rejected() -> None:
     outcome = await call(GitLabStub(), "gitlab_projects", {"action": "get", "project": ""})
+    assert outcome.structured["error"]["code"] == "invalid_arguments"
+
+
+async def test_transfer_reports_a_move_gitlab_has_only_queued() -> None:
+    stub = GitLabStub()
+    moving = {"id": 9, "namespace": {"id": 2, "full_path": "grp"}}  # still in its old group
+    stub.add("PUT", f"{P}/transfer", StubResponse(json=moving))
+    outcome = await call(
+        stub,
+        "gitlab_projects",
+        {"action": "transfer", "project": "grp/app", "namespace": 5, "confirm": True},
+    )
+    assert outcome.structured["status"] == "queued"
+    assert "background" in outcome.structured["note"]
+    assert body_of(stub.requests[0]) == {"namespace": "5"}
+
+
+async def test_transfer_by_id_recognises_the_completed_move() -> None:
+    stub = GitLabStub()
+    moved = {"id": 9, "namespace": {"id": 5, "full_path": "platform"}}
+    stub.add("PUT", f"{P}/transfer", StubResponse(json=moved))
+    outcome = await call(
+        stub,
+        "gitlab_projects",
+        {"action": "transfer", "project": "grp/app", "namespace": 5, "confirm": True},
+    )
+    assert outcome.structured == {"status": "transferred", "project": moved}
+
+
+async def test_transfer_requires_confirmation() -> None:
+    stub = GitLabStub()
+    outcome = await call(
+        stub, "gitlab_projects", {"action": "transfer", "project": 1, "namespace": "platform"}
+    )
+    assert outcome.structured["error"]["code"] == "confirmation_required"
+    assert stub.requests == []
+
+
+async def test_badge_update_needs_a_change() -> None:
+    outcome = await call(
+        GitLabStub(), "gitlab_badges", {"action": "update", "project": 1, "badge_id": 3}
+    )
     assert outcome.structured["error"]["code"] == "invalid_arguments"

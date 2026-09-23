@@ -4,7 +4,10 @@
 
 > **Revised 2026-09-22 (still Draft).** Corrected `gitlab_tags` `create`: GitLab's Tags API takes no
 > release notes. Clarified that `create` accepts a namespace path as well as an ID. Creating
-> repositories and branches is an explicit owner requirement (PRD-00 §2).
+> repositories and branches is an explicit owner requirement (PRD-00 §2). **2026-09-23:** At the
+> owner's request, most of what §5 deferred is now built: `transfer` (destructive) with
+> `list_transfer_locations`, `get_languages`, `statistics` and `license` on `get`, built-in
+> templates on `create`, and a `gitlab_badges` tool. Import and export stay out of scope.
 
 ## 1. Overview
 
@@ -18,6 +21,7 @@ entry point for almost every other PRD, since every other tool call is scoped to
   create, update settings, fork, archive/unarchive, star/unstar, delete.
 - Manage branches, including protected branches.
 - Manage tags, including protected tags.
+- Manage the badges on a project's overview page.
 
 ## 3. Functional Requirements
 
@@ -27,14 +31,17 @@ Per PRD-00 §6, expose as coarse action-discriminated tools, not one tool per en
 | Action | GitLab endpoint | Notes |
 |---|---|---|
 | `list` | `GET /projects` | Filters: `search`, `owned`, `membership`, `visibility`, `archived`; paginated per PRD-00 §10 |
-| `get` | `GET /projects/:id` | Accepts numeric id or URL-encoded `namespace/path` |
-| `create` | `POST /projects` | Name/path, namespace (numeric ID or full path, resolved to an ID via `GET /namespaces/:id`), visibility, initialize-with-readme |
+| `get` | `GET /projects/:id` | Accepts numeric id or URL-encoded `namespace/path`; `statistics` adds storage sizes, `license` the detected license |
+| `get_languages` | `GET /projects/:id/languages` | Each language's share of the repository, in percent |
+| `create` | `POST /projects` | Name/path, namespace (numeric ID or full path, resolved to an ID via `GET /namespaces/:id`), visibility, initialize-with-readme, or `template_name` for a built-in template |
 | `update` | `PUT /projects/:id` | Settings: description, visibility, default branch, merge method, etc. |
 | `delete` | `DELETE /projects/:id` | **Destructive** — requires an explicit `confirm: true` argument; GitLab itself soft-deletes with a retention period, surface that in the response |
 | `fork` | `POST /projects/:id/fork` | Optional target namespace |
 | `archive` / `unarchive` | `POST /projects/:id/archive` / `/unarchive` | |
 | `star` / `unstar` | `POST /projects/:id/star` / `/unstar` | |
 | `list_forks` | `GET /projects/:id/forks` | |
+| `transfer` | `PUT /projects/:id/transfer` | Move to another namespace (ID or path). **Destructive** — the path and URL change — requires `confirm: true`. Recent GitLab moves the project in the background, which the response reports as `queued` |
+| `list_transfer_locations` | `GET /projects/:id/transfer_locations` | Namespaces the project can move to |
 
 ### `gitlab_branches`
 | Action | GitLab endpoint | Notes |
@@ -59,9 +66,18 @@ Per PRD-00 §6, expose as coarse action-discriminated tools, not one tool per en
 | `unprotect` | `DELETE /projects/:id/protected_tags/:name` | |
 | `list_protected` | `GET /projects/:id/protected_tags` | |
 
+### `gitlab_badges`
+| Action | GitLab endpoint | Notes |
+|---|---|---|
+| `list` | `GET /projects/:id/badges` | Includes the group's badges (`kind` says which); `name` filter |
+| `get` | `GET /projects/:id/badges/:badge_id` | |
+| `create` | `POST /projects/:id/badges` | `link_url` and `image_url`, which may use placeholders such as `%{project_path}`; optional `name` |
+| `update` / `delete` | `PUT`/`DELETE /projects/:id/badges/:badge_id` | Project badges only; group badges belong to the group |
+| `preview` | `GET /projects/:id/badges/render` | The two URLs with their placeholders filled in |
+
 ## 4. Non-Functional Requirements
 
-- All destructive actions (`delete` on projects/branches, `delete_merged`) require an explicit
+- All destructive actions (`delete` on projects/branches, `delete_merged`, `transfer`) require an explicit
   `confirm: true` argument and return the GitLab confirmation payload (e.g. soft-delete retention
   date), per this repo's general caution around irreversible operations.
 - `list` actions follow PRD-00 §10 pagination conventions exactly (`page`/`per_page`, capped at
@@ -71,8 +87,9 @@ Per PRD-00 §6, expose as coarse action-discriminated tools, not one tool per en
 
 ## 5. Out of Scope (v1)
 
-- Project transfer between namespaces/groups, project import/export, badges, custom project
-  templates — long-tail admin operations, deferred.
+- Project import and export — both move a whole-project archive (an upload or a download), a
+  bulk binary transfer rather than an agent operation. Custom project templates from a group
+  need GitLab Premium; built-in templates are covered (`template_name`).
 - CI/CD-specific project settings and variables — covered in PRD-05.
 - Group (namespace) creation/settings — only group *membership lookups* are covered, in PRD-08.
 

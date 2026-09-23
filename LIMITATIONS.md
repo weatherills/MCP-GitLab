@@ -25,8 +25,6 @@ Server-wide:
 
 Per toolset, deferred by each PRD's "Out of Scope (v1)" section unless noted:
 
-- `projects`: transferring a project between namespaces, import and export, badges, custom
-  project templates. (PRD-01 §5)
 - `repository`: Git LFS objects, repository statistics, submodules. (PRD-02 §5)
 - `merge_requests`: draft reviews that post several comments at once; customizing the squash
   commit message. (PRD-03 §5)
@@ -41,8 +39,8 @@ Per toolset, deferred by each PRD's "Out of Scope (v1)" section unless noted:
 Excluded by design:
 
 - **GitLab Premium and Ultimate features**, such as epics, security and vulnerability scanning,
-  compliance frameworks, and release evidence. The target is GitLab Free and Community Edition.
-  (PRD-00 §3, PRD-06 §5)
+  compliance frameworks, release evidence, and custom project templates from a group. The target
+  is GitLab Free and Community Edition. (PRD-00 §3, PRD-01 §5, PRD-06 §5)
 - **Packages, the container registry, and instance administration APIs.** (PRD-00 §3)
 - **The stdio transport.** The server is remote-first. (PRD-00 §3)
 - **A server-side GitLab token.** `GITLAB_TOKEN` is ignored with a warning: every request must
@@ -51,9 +49,9 @@ Excluded by design:
   `Authorization` schemes other than `Bearer` aren't read. (PRD-00 §7.2, PRD-05 §5)
 - **`approval_password` when approving a merge request.** A user's password must never pass
   through an LLM tool call. (PRD-03 §3)
-- **Whole-archive downloads** of a repository ref or a job's artifacts. These are bulk binary
-  transfers, not agent operations; artifact files are fetched one at a time. (PRD-02 §5,
-  PRD-05 §4)
+- **Whole-archive transfers:** downloading a repository ref or a job's artifacts, and project
+  import and export. These are bulk binary transfers, not agent operations; artifact files are
+  fetched one at a time. (PRD-01 §5, PRD-02 §5, PRD-05 §4)
 - **Group and instance administration:** creating groups or changing their settings, SSO and SAML,
   creating or blocking user accounts, and authoring merge request approval rules. (PRD-01 §5,
   PRD-03 §5, PRD-08 §5)
@@ -147,7 +145,7 @@ Tools:
 
 - **One coarse tool per domain,** taking an `action` argument: 22 tools rather than one per GitLab
   endpoint. (PRD-00 §6)
-- **`confirm: true` is required by** `gitlab_projects.delete`, `gitlab_branches.delete` and
+- **`confirm: true` is required by** `gitlab_projects.delete` and `transfer`, `gitlab_branches.delete` and
   `delete_merged`, `gitlab_merge_requests.merge`, `gitlab_issues.delete`,
   `gitlab_pipelines.delete`, and `gitlab_members.update` and `remove`. Deleting a release doesn't
   need it, since the tag stays. (PRD-01 §4, PRD-06 §4)
