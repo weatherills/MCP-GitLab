@@ -8,7 +8,8 @@
 > §2, §4, §5, §6, §7.2, §8–§11, and §13 are updated to match; the server-side `GITLAB_TOKEN`
 > fallback is removed. With all eight toolsets built, §6 and §8 now set the default selection:
 > every toolset. `MCP_JSON_RESPONSE` (§8) lets a deployment answer with plain JSON instead of SSE
-> (§4.2).
+> (§4.2). **2026-09-23:** §9 adds the standalone image, in which Caddy terminates TLS in front of
+> the server in one container, and §8 lists its two settings.
 
 ## 1. Overview
 
@@ -249,8 +250,10 @@ but it is not a v1 requirement.
 | `MCP_BIND_HOST` / `MCP_BIND_PORT` | No | `127.0.0.1:8080` | Listener address |
 | `MCP_ALLOWED_HOSTS` | When the bind isn't loopback | loopback names | `Host` header values accepted (§4.3) |
 | `MCP_ALLOWED_ORIGINS` | No | loopback origins on a loopback bind, none otherwise | Browser `Origin` values accepted (§4.3) |
-| `MCP_TLS_CERTFILE` / `MCP_TLS_KEYFILE` | No | — | Native TLS; set both or neither (§9) |
+| `MCP_TLS_CERTFILE` / `MCP_TLS_KEYFILE` | No | — | Native TLS, or Caddy's certificate in the standalone image; set both or neither (§9) |
 | `MCP_TLS_TERMINATED_UPSTREAM` | No | `false` | Declares that a proxy in front terminates TLS (§9) |
+| `MCP_PUBLIC_HOST` | Standalone image only | `localhost`; the published image presets the owner's host | Host name Caddy serves; the server's allowed hosts are derived from it (§9) |
+| `MCP_HTTPS_PORT` | Standalone image only | `8443` | Port Caddy listens on inside the container (§9) |
 | `LOG_LEVEL` / `LOG_FORMAT` | No | `INFO` / `json` | Logging (§11) |
 
 There is deliberately no `GITLAB_TOKEN` (§7.2).
@@ -265,6 +268,21 @@ non-loopback host without either TLS configured or an explicit `--insecure-dev` 
 configured" means either native TLS (`MCP_TLS_CERTFILE` + `MCP_TLS_KEYFILE`) or
 `MCP_TLS_TERMINATED_UPSTREAM=true`, which declares that a reverse proxy or load balancer in front
 terminates TLS. A non-loopback bind also requires `MCP_ALLOWED_HOSTS` (§4.3).
+
+**As built: the standalone image.** The Dockerfile's default target bundles Caddy with the server,
+so one container serves HTTPS: Caddy listens on `MCP_HTTPS_PORT` (8443) for `MCP_PUBLIC_HOST` and
+proxies to the server, which binds loopback only and so needs no TLS settings of its own. The
+certificate is the operator's own (`tls.crt` and `tls.key` mounted in `/certs`, or the files that
+`MCP_TLS_CERTFILE` and `MCP_TLS_KEYFILE` name), or else one Caddy issues from a local CA it
+creates and keeps in the `/data` volume, whose root certificate clients must trust. The image's
+entrypoint derives the server's `MCP_ALLOWED_HOSTS` from `MCP_PUBLIC_HOST`, and Caddy answers any
+other host name with `421`. Caddy logs every request it fails with a `5xx`, headers included,
+redacting `Authorization` but not `PRIVATE-TOKEN`, so its logs leave request headers out
+entirely (§11). CI publishes the image to GHCR pre-configured for the owner's deployment
+(`GITLAB_BASE_URL=https://git.smce.nasa.gov/api/v4`,
+`MCP_PUBLIC_HOST=mantle.scipai.sandbox.sciencecloud.nasa.gov`), and `deploy/compose.yaml` runs
+it. `--target server` still builds the server alone, for a proxy or load balancer the operator
+provides.
 
 ## 10. Error Handling, Retries & Pagination (shared conventions)
 

@@ -55,17 +55,84 @@ issue, or pipeline, merging a merge request, and changing or removing a project 
 
 ## Deploying
 
-Beyond `127.0.0.1` the server must be reached over HTTPS, and it refuses to start otherwise. Set:
+Beyond `127.0.0.1` the server must be reached over HTTPS, and it refuses to start otherwise.
+
+### Standalone image
+
+One container holds everything: [Caddy](https://caddyserver.com) serves HTTPS on port 8443 and
+passes each request, with its caller's PAT, to the MCP server, which listens only on the
+container's loopback interface. CI publishes it to `ghcr.io/weatherills/mcp-gitlab`
+(linux/amd64 and linux/arm64) from every push to `main`, tagged `latest` and `sha-<commit>`;
+`v*` tags add version tags. It is pre-configured for this deployment, and both settings can be
+overridden at run time:
+
+- `MCP_PUBLIC_HOST=mantle.scipai.sandbox.sciencecloud.nasa.gov`, the name clients connect to;
+- `GITLAB_BASE_URL=https://git.smce.nasa.gov/api/v4`.
+
+[`deploy/`](deploy/) is a Docker Compose bundle for it, published on port 443:
+
+```
+cd deploy
+mkdir certs && cp fullchain.pem certs/tls.crt && cp privkey.pem certs/tls.key
+sudo chown 10001 certs/tls.key    # the container runs as uid 10001
+docker compose up -d              # https://mantle.scipai.sandbox.sciencecloud.nasa.gov/mcp
+```
+
+Clients then connect as in [Connecting a client](#connecting-a-client), each with their own PAT.
+
+**TLS.** Bring your own certificate, or let Caddy make one:
+
+- **Your certificate:** `tls.crt` (the certificate, then any intermediates) and `tls.key` in
+  `/certs` (`deploy/certs` in the bundle), readable by uid 10001; or name other files with
+  `MCP_TLS_CERTFILE` and `MCP_TLS_KEYFILE`. It must cover `MCP_PUBLIC_HOST`. Caddy doesn't renew a
+  certificate you provide: replace the files and restart the container before it expires.
+- **No certificate:** Caddy creates a local CA on first start, then issues and renews the
+  certificate itself. Clients must trust the CA's root certificate, which stays the same as long
+  as the `/data` volume is kept:
+
+  ```
+  docker compose cp mcp-gitlab:/data/caddy/pki/authorities/local/root.crt mcp-gitlab-ca.crt
+  ```
+
+  Add it to the client machines' trust store, or for Claude Code set
+  `NODE_EXTRA_CA_CERTS=/path/to/mcp-gitlab-ca.crt`.
+
+Caddy answers any host name other than `MCP_PUBLIC_HOST` with `421`, and the server's
+`MCP_ALLOWED_HOSTS` is derived from it. If a private CA issued GitLab's certificate, put that CA
+bundle in `deploy/certs` and set `GITLAB_CA_BUNDLE=/certs/<file>` (it replaces the system CAs).
+No Caddy log line includes request headers, so a PAT never reaches the logs.
+
+**Getting the image.** GitHub makes a new package private: until an organization owner makes it
+public (the package's settings, "Change visibility"; this can't be undone), pulling it needs
+`docker login ghcr.io` with a PAT that has the `read:packages` scope. If the host can't reach
+ghcr.io at all, carry the image over as a file:
+
+```
+docker pull --platform linux/amd64 ghcr.io/weatherills/mcp-gitlab:latest
+docker save ghcr.io/weatherills/mcp-gitlab:latest | gzip > mcp-gitlab.tar.gz
+# copy mcp-gitlab.tar.gz and deploy/ to the host, then, there:
+docker load -i mcp-gitlab.tar.gz && docker compose up -d
+```
+
+Or build it: `docker compose build` in `deploy/`, or `docker build -t mcp-gitlab .`, which
+defaults to `localhost` and gitlab.com unless given `--build-arg MCP_PUBLIC_HOST=...` and
+`--build-arg GITLAB_BASE_URL=...`.
+
+### Behind your own proxy or load balancer
+
+Set:
 
 - `MCP_BIND_HOST=0.0.0.0` and `MCP_ALLOWED_HOSTS=mcp.example.com` (the public hostname), plus
 - `MCP_TLS_TERMINATED_UPSTREAM=true` behind a TLS-terminating proxy or load balancer, **or**
   `MCP_TLS_CERTFILE` and `MCP_TLS_KEYFILE` for native TLS.
 
 The stateless default needs no sticky sessions, so replicas can sit behind any load balancer.
+`docker build --target server .` builds an image of the server alone: non-root, binding
+`0.0.0.0:8080`, with a health check on `/healthz`. Pass `MCP_ALLOWED_HOSTS` and one of the TLS
+options to `docker run`.
 
-The [`Dockerfile`](Dockerfile) builds a non-root image that binds `0.0.0.0:8080` with a health
-check on `/healthz`; pass `MCP_ALLOWED_HOSTS` and one of the TLS options to `docker run`. CI builds
-the image and checks that it reports healthy.
+CI builds both images, checks that they report healthy, and runs the Compose bundle in both TLS
+modes before it publishes.
 
 ## Development
 

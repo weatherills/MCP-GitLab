@@ -1,0 +1,49 @@
+# Caddy in the standalone image (see the Dockerfile): HTTPS in front of the MCP server.
+#
+# The entrypoint, python -m mcp_gitlab.standalone, sets every {$...} value below:
+#   MCP_PUBLIC_HOST  the host name clients connect to
+#   MCP_HTTPS_PORT   the port Caddy listens on inside the container
+#   MCP_CADDY_TLS    "internal" for a certificate from Caddy's local CA, or the quoted paths
+#                    of the operator's certificate and key
+#   MCP_UPSTREAM     the MCP server, listening on loopback
+{
+	admin off
+	persist_config off
+	auto_https disable_redirects
+	skip_install_trust
+	# Clients that connect by IP address send no server name; give them the public host's
+	# certificate, and the catch-all site below tells them which host to use.
+	default_sni {$MCP_PUBLIC_HOST}
+	# No outbound calls to OCSP responders, which a private network may not reach.
+	ocsp_stapling off
+	# On shutdown, in-flight requests get 5 s (the entrypoint waits 8 s before killing).
+	grace_period 5s
+	servers {
+		# HTTP/3 would also need the UDP port published.
+		protocols h1 h2
+	}
+	pki {
+		ca local {
+			name "MCP-GitLab local CA"
+		}
+	}
+	# Requests carry their caller's PAT. Whenever Caddy answers with a 5xx (the server is
+	# down, say), it logs the request and its headers, redacting Authorization but not
+	# PRIVATE-TOKEN, so no log line includes request headers.
+	log {
+		format filter {
+			wrap json
+			request>headers delete
+		}
+	}
+}
+
+https://{$MCP_PUBLIC_HOST}:{$MCP_HTTPS_PORT} {
+	tls {$MCP_CADDY_TLS}
+	reverse_proxy {$MCP_UPSTREAM}
+}
+
+# Every other host name, and bare IP addresses.
+https://:{$MCP_HTTPS_PORT} {
+	respond "This server answers only for https://{$MCP_PUBLIC_HOST}/" 421
+}

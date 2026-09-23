@@ -3,7 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -17,26 +21,33 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
+      - name: Install the standalone image's Caddy, for its tests
+        run: |
+          version=$(sed -n 's/^ARG CADDY_VERSION=//p' Dockerfile)
+          docker create --name caddy "caddy:$version"
+          sudo docker cp caddy:/usr/bin/caddy /usr/local/bin/caddy
+          docker rm caddy
+          caddy version
       - run: ruff check .
       - run: mypy src
       - run: pytest
 
-  image:
+  server-image:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - name: Build the image
-        run: docker build -t mcp-gitlab:ci .
+        run: docker build --target server -t mcp-gitlab:server .
       - name: Check the image runs as the non-root user
-        run: test "$(docker image inspect --format '{{.Config.User}}' mcp-gitlab:ci)" = 10001
+        run: test "$(docker image inspect --format '{{.Config.User}}' mcp-gitlab:server)" = 10001
       - name: Start the container
         run: >-
           docker run -d --name mcp-gitlab
           -e MCP_ALLOWED_HOSTS=localhost
           -e MCP_TLS_TERMINATED_UPSTREAM=true
           -p 8080:8080
-          mcp-gitlab:ci
+          mcp-gitlab:server
       - name: Wait for /healthz
         run: curl -fsS --retry 30 --retry-delay 1 --retry-all-errors http://localhost:8080/healthz
       - name: Wait for the Docker health check to report healthy
@@ -59,3 +70,129 @@ jobs:
       - name: Stop the container
         if: always()
         run: docker rm -f mcp-gitlab || true
+
+  standalone-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        tls: [local_ca, provided]
+    defaults:
+      run:
+        working-directory: deploy
+    env:
+      MCP_GITLAB_IMAGE: mcp-gitlab:standalone
+      HOST: mantle.scipai.sandbox.sciencecloud.nasa.gov
+      PAT: glpat-ci-not-a-real-token-0000
+      TLS: ${{ matrix.tls }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image with the Compose bundle
+        run: docker compose build
+      - name: Check the image runs as the non-root user
+        run: test "$(docker image inspect --format '{{.Config.User}}' "$MCP_GITLAB_IMAGE")" = 10001
+      - name: Check Caddy starts with every capability dropped
+        run: docker run --rm --cap-drop ALL --entrypoint caddy "$MCP_GITLAB_IMAGE" version
+      - name: Provide a certificate
+        if: matrix.tls == 'provided'
+        run: |
+          mkdir certs
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 1 \
+            -subj "/CN=$HOST" -addext "subjectAltName=DNS:$HOST" \
+            -keyout certs/tls.key -out certs/tls.crt
+          sudo chown 10001 certs/tls.key
+      - name: Start the bundle
+        run: docker compose up -d
+      - name: Wait for the Docker health check to report healthy
+        run: |
+          container=$(docker compose ps -q mcp-gitlab)
+          for _ in $(seq 1 45); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' "$container")
+            echo "health: $status"
+            case "$status" in
+              healthy) exit 0 ;;
+              unhealthy) exit 1 ;;
+            esac
+            sleep 2
+          done
+          exit 1
+      - name: Get the certificate clients must trust
+        run: |
+          if [ "$TLS" = provided ]; then
+            cp certs/tls.crt ca.crt
+          else
+            docker compose cp mcp-gitlab:/data/caddy/pki/authorities/local/root.crt ca.crt
+          fi
+          openssl x509 -in ca.crt -noout -subject -enddate
+      - name: Serve MCP over verified HTTPS, with each request's own PAT
+        run: |
+          call() { curl -sS --cacert ca.crt --resolve "$HOST:443:127.0.0.1" "$@"; }
+          status() { call -o /dev/null -w '%{http_code}' "$@"; }
+          mcp=(-X POST "https://$HOST/mcp" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
+          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}'
+          list='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+          test "$(status "https://$HOST/healthz")" = 200
+          test "$(status "${mcp[@]}" -d "$init")" = 401
+          call -f "${mcp[@]}" -H "Authorization: Bearer $PAT" -d "$init" | grep -q '"protocolVersion"'
+          call -f "${mcp[@]}" -H "PRIVATE-TOKEN: $PAT" -d "$list" | grep -q '"gitlab_projects"'
+          test "$(status -H 'Host: other.example' "https://$HOST/mcp")" = 421
+      - name: Check no log line shows the PAT
+        run: |
+          docker compose logs > container.log 2>&1
+          if grep -F "$PAT" container.log; then exit 1; fi
+      - name: Stop, and check the entrypoint stopped cleanly
+        run: |
+          container=$(docker compose ps -q mcp-gitlab)
+          docker compose stop
+          test "$(docker inspect --format '{{.State.ExitCode}}' "$container")" = 0
+      - name: Show the logs
+        if: failure()
+        run: docker compose logs
+      - name: Remove the bundle
+        if: always()
+        run: docker compose down --volumes
+
+  publish:
+    # Pushes to main and v* tags publish the standalone image, once every other job passed.
+    if: github.event_name == 'push'
+    needs: [test, server-image, standalone-image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency: publish-${{ github.ref }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: standalone
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # The deployment the published image is pre-configured for; both can be overridden
+          # at run time.
+          build-args: |
+            GITLAB_BASE_URL=https://git.smce.nasa.gov/api/v4
+            MCP_PUBLIC_HOST=mantle.scipai.sandbox.sciencecloud.nasa.gov
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

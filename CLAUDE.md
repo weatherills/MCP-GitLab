@@ -12,8 +12,9 @@ Personal Access Tokens (PATs).
 ## Current state
 
 - **Built:** the framework (transport, auth, GitLab client, tool framework) per PRD-00, plus the
-  toolsets for PRD-01 to PRD-08 (see the table). What remains is the owner's review of the PRDs
-  and their open questions.
+  toolsets for PRD-01 to PRD-08 (see the table), and the standalone Docker image (Caddy for TLS in
+  front of the server, PRD-00 §9) that CI publishes to GHCR, with a Compose bundle in `deploy/`.
+  What remains is the owner's review of the PRDs and their open questions.
 - The PRDs in `docs/prd/` are the spec ("true north"). Every PRD still reads `Status: Draft`: they
   were merged before formal review, at the owner's direction, and the owner is reviewing them now.
   Each implemented PRD carries a **Revised 2026-09-22** note listing what implementation changed.
@@ -57,6 +58,7 @@ app.py      composition root: wires everything; nothing imports it
 ```
 src/mcp_gitlab/
   __main__.py       # `mcp-gitlab` entrypoint: settings, TLS policy, uvicorn
+  standalone.py     # the standalone image's entrypoint: runs Caddy and the server, health check
   app.py            # create_app(): registry → GitLab client → dispatcher → MCP server → ASGI app
   config.py         # Settings (PRD-00 §8) and the startup safety checks (§4.3, §7.4, §9)
   core/             # errors (ToolError hierarchy), per-request context + PAT extraction, JSON logs
@@ -82,6 +84,7 @@ src/mcp_gitlab/
     search/         # PRD-07: gitlab_search
     collaboration/  # PRD-08: gitlab_members, gitlab_users, gitlab_wikis, gitlab_webhooks
 tests/              # mirrors src/; toolsets/wire.py drives actions and asserts the GitLab request
+deploy/             # Caddyfile (built into the standalone image) and compose.yaml (the bundle)
 ```
 
 How one tool call flows: `transport/http.py` rejects a request without a PAT (`401`) →
@@ -122,8 +125,10 @@ action, since the tool schema shows one description per parameter.
 - **Git: work directly on `main`.** Don't create branches, local or remote — the owner's
   instruction. Commit to `main` and push it; CI runs on every push to `main`.
 - Lint/format: `ruff` (`ruff check .`, `ruff format .`). Types: `mypy --strict` (`mypy src`).
-  Tests: `pytest`. CI runs all three on Python 3.10 and 3.12, and builds the Docker image and
-  waits for it to report healthy — keep them passing.
+  Tests: `pytest`. CI runs all three on Python 3.10 and 3.12 (with the image's Caddy installed,
+  so the standalone tests run), builds both Docker images and waits for them to report healthy,
+  runs the Compose bundle in both TLS modes, and then, on `main`, publishes the standalone image
+  to GHCR — keep them passing.
 - Per PRD-00 §6: one coarse tool per domain with an `action` discriminator
   (`gitlab_branches(action="list"|"create"|...)`), not one MCP tool per GitLab REST endpoint.
 - Destructive/high-impact actions (each PRD's tables mark them) are declared `destructive=True`,
@@ -154,6 +159,11 @@ Recorded in the PRDs' revision notes; summarized here so they aren't re-litigate
 - **Tags carry no release notes** — the Tags API has no such field (PRD-01).
 - **Wiki `update` keeps the page's format:** GitLab resets an omitted `format` to markdown, so the
   tool reads the page's current format first (PRD-08).
+- **Standalone image:** Caddy terminates TLS in the same container (the operator's certificate
+  from `/certs`, or one from Caddy's local CA) and proxies to the server on loopback;
+  `mcp_gitlab.standalone` supervises both, with no init system. Caddy's logs leave out request
+  headers: it logs each request it fails with a 5xx, headers included, and redacts
+  `Authorization` but not `PRIVATE-TOKEN` (PRD-00 §9).
 - **Not built:** PRD-00 §10's per-caller outbound rate limit (needs shared state; PRD-00 §13 Q4).
 
 ## Running things
@@ -163,6 +173,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ruff check . && mypy src && pytest
 mcp-gitlab                 # http://127.0.0.1:8080/mcp; --insecure-dev allows plaintext off loopback
+cd deploy && docker compose up -d   # the standalone image: https://$MCP_PUBLIC_HOST/mcp
 ```
 
 No `.env` is needed for the test suite. For manual runs, copy `.env.example` to `.env`. Clients send

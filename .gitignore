@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# TLS certificates and keys for the Compose bundle
+deploy/certs/
