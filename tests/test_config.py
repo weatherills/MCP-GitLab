@@ -12,6 +12,7 @@ def test_defaults() -> None:
     assert settings.mcp_bind_host == "127.0.0.1"
     assert settings.mcp_stateless_http is True
     assert settings.mcp_json_response is False
+    assert settings.mcp_max_request_bytes == 10 * 1024 * 1024
     assert settings.allowed_hosts() == ["127.0.0.1:*", "localhost:*", "[::1]:*"]
     assert "http://localhost:*" in settings.allowed_origins()
     assert settings.toolset_allowlist() is None

@@ -9,7 +9,8 @@
 > fallback is removed. With all eight toolsets built, §6 and §8 now set the default selection:
 > every toolset. `MCP_JSON_RESPONSE` (§8) lets a deployment answer with plain JSON instead of SSE
 > (§4.2). **2026-09-23:** §9 adds the standalone image, in which Caddy terminates TLS in front of
-> the server in one container, and §8 lists its two settings.
+> the server in one container, and §8 lists its two settings. Host names now match without
+> regard to case (§4.3), and `MCP_MAX_REQUEST_BYTES` caps each request body (§8, §10).
 
 ## 1. Overview
 
@@ -119,7 +120,7 @@ to 2026-07-28 costs little. Formal sign-off is still open (§13 Q1).
 
 - **Validate the `Origin` header** on every request to prevent DNS-rebinding attacks; reject with
   `403` on mismatch (mandatory since 2025-11-25). The `Host` header is checked too (`421` on
-  mismatch). Both checks stay on for every bind address, driven by `MCP_ALLOWED_ORIGINS` and
+  mismatch; as built, without regard to case, since host names are case-insensitive). Both checks stay on for every bind address, driven by `MCP_ALLOWED_ORIGINS` and
   `MCP_ALLOWED_HOSTS` (§8), not only for loopback.
 - **Do not bind to `0.0.0.0`** for any local/dev mode; bind to `127.0.0.1`. The production
   deployment target is behind HTTPS termination (see §9), so this mainly matters for local dev.
@@ -245,6 +246,7 @@ but it is not a v1 requirement.
 | `GITLAB_MCP_MAX_FILE_BYTES` | No | 1 MiB | Largest file content returned by file reads (PRD-02 §4) |
 | `MCP_STATELESS_HTTP` | No | `true` | Stateless Streamable HTTP; `false` enables sessions (§5) |
 | `MCP_JSON_RESPONSE` | No | `false` | Answer each request with one JSON body instead of an SSE stream (§4.2) |
+| `MCP_MAX_REQUEST_BYTES` | No | 10 MiB | Largest `/mcp` request body accepted; a larger one gets `413` (§10) |
 | `MCP_SESSION_IDLE_TIMEOUT` | No | `1800` s | Evict idle sessions (stateful mode only) |
 | `MCP_MAX_SESSIONS` | No | SDK default (10,000) | Cap concurrent sessions per instance (stateful mode only) |
 | `MCP_BIND_HOST` / `MCP_BIND_PORT` | No | `127.0.0.1:8080` | Listener address |
@@ -310,8 +312,9 @@ Every functional PRD (01–08) inherits these instead of defining its own:
   Tools returning these must support a way to fetch a summary/list first and full content
   per-item second (e.g. "list changed files in this MR" then "get the diff for file X") rather than
   returning everything in one response — this is called out per-PRD where it applies (PRD-02, PRD-03,
-  PRD-05). Two hard caps back this up: `GITLAB_MAX_RESPONSE_BYTES` for every GitLab response, and
-  `GITLAB_MCP_MAX_FILE_BYTES` for file content.
+  PRD-05). Three hard caps back this up: `GITLAB_MAX_RESPONSE_BYTES` for every GitLab response,
+  `GITLAB_MCP_MAX_FILE_BYTES` for file content, and `MCP_MAX_REQUEST_BYTES` for each request a
+  client sends, which is refused with `413` before it is read into memory.
 
 ## 11. Observability
 

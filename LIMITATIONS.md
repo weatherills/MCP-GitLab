@@ -6,12 +6,7 @@ reviewed 2026-09-23.
 
 ## Known bugs
 
-- **Host names are matched case-sensitively.** The MCP SDK compares the `Host` header with the
-  allowed host names exactly, so `https://Mantle.example.gov/mcp` gets `421 Invalid Host header`
-  where `https://mantle.example.gov/mcp` works. Node and Python HTTP clients lowercase host names
-  before sending them; curl sends them as typed. Workaround: write host names in lowercase.
-
-No other bugs are known.
+None known.
 
 ## Not yet implemented
 
@@ -20,10 +15,6 @@ Server-wide:
 - **Per-caller rate limiting.** It needs state shared across requests and replicas. The proposal
   is to leave request rates and connection caps to a proxy or gateway in front of the server.
   GitLab's own rate limits still apply to each PAT. (PRD-00 §10, §13 Q4)
-- **A request size limit.** Neither the server nor the standalone image's Caddy caps a request
-  body, and the MCP SDK reads each body whole. If the server is widely reachable, cap bodies in the
-  proxy in front. Responses from GitLab are capped (`GITLAB_MAX_RESPONSE_BYTES`,
-  `GITLAB_MCP_MAX_FILE_BYTES`).
 - **OAuth 2.1.** Authentication is PAT-only; OAuth is a Phase 2 candidate. (PRD-00 §3, §7.3)
 - **SSE resumability.** There is no `Last-Event-ID` replay, which needs an event store that a
   stateless server doesn't keep. (PRD-00 §4.2)
@@ -129,8 +120,10 @@ Transport:
 - **`MCP-Protocol-Version`:** an unsupported value gets `400`. A request without the header is
   treated as 2025-03-26, as the MCP spec says servers should for backward compatibility.
   (PRD-00 §4.2)
-- **Host and Origin are checked on every bind address** (`421` and `403` on a mismatch).
-  (PRD-00 §4.3)
+- **Host and Origin are checked on every bind address** (`421` and `403` on a mismatch). Host
+  names match without regard to case. (PRD-00 §4.3)
+- **A request body over `MCP_MAX_REQUEST_BYTES` (10 MiB) gets `413`,** before it is read into
+  memory. The PAT check comes first, so an anonymous request gets `401` either way. (PRD-00 §10)
 - **Plaintext HTTP only on loopback.** Elsewhere the server needs native TLS,
   `MCP_TLS_TERMINATED_UPSTREAM=true` behind a TLS proxy, or `--insecure-dev`. (PRD-00 §9)
 

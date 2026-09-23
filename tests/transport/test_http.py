@@ -1,3 +1,5 @@
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 import anyio
@@ -54,6 +56,61 @@ async def test_mcp_rejects_unexpected_host_headers() -> None:
     ) as client:
         response = await client.post("/mcp", json=INITIALIZE, headers={**MCP_HEADERS, **AUTH})
     assert response.status_code == 421
+
+
+async def test_host_names_match_whatever_their_case() -> None:
+    headers = {**MCP_HEADERS, **AUTH, "Host": "LocalHost:8080"}
+    async with http_client(build_app(GitLabStub())) as client:
+        response = await client.post("/mcp", json=INITIALIZE, headers=headers)
+    assert response.status_code == 200
+
+
+def _limited(max_bytes: int) -> Settings:
+    return Settings(mcp_max_request_bytes=max_bytes)
+
+
+async def test_a_body_over_the_limit_is_refused_with_413() -> None:
+    body = json.dumps(INITIALIZE).encode()
+    stub = GitLabStub()
+    async with http_client(build_app(stub, _limited(len(body) - 1))) as client:
+        response = await client.post("/mcp", content=body, headers={**MCP_HEADERS, **AUTH})
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "payload_too_large"
+    assert stub.requests == []
+
+
+async def test_a_body_without_a_length_is_counted_as_it_arrives() -> None:
+    body = json.dumps(INITIALIZE).encode()
+
+    async def chunks() -> AsyncIterator[bytes]:
+        for start in range(0, len(body), 16):
+            yield body[start : start + 16]
+
+    async with http_client(build_app(GitLabStub(), _limited(len(body) - 1))) as client:
+        response = await client.post("/mcp", content=chunks(), headers={**MCP_HEADERS, **AUTH})
+    assert "content-length" not in response.request.headers
+    assert response.status_code == 413
+
+
+async def test_a_body_at_the_limit_is_served() -> None:
+    body = json.dumps(INITIALIZE).encode()
+
+    async def chunks() -> AsyncIterator[bytes]:
+        yield body[:10]
+        yield body[10:]
+
+    async with http_client(build_app(GitLabStub(), _limited(len(body)))) as client:
+        whole = await client.post("/mcp", content=body, headers={**MCP_HEADERS, **AUTH})
+        chunked = await client.post("/mcp", content=chunks(), headers={**MCP_HEADERS, **AUTH})
+    assert (whole.status_code, chunked.status_code) == (200, 200)
+    assert "mcp-gitlab" in chunked.text
+
+
+async def test_the_pat_is_checked_before_the_body_is_read() -> None:
+    body = json.dumps(INITIALIZE).encode()
+    async with http_client(build_app(GitLabStub(), _limited(1))) as client:
+        response = await client.post("/mcp", content=body, headers=MCP_HEADERS)
+    assert response.status_code == 401
 
 
 async def test_authenticated_initialize_succeeds() -> None:

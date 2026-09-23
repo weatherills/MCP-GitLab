@@ -40,6 +40,7 @@ class Settings(BaseSettings):
 
     mcp_stateless_http: bool = True
     mcp_json_response: bool = False
+    mcp_max_request_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     mcp_session_idle_timeout: int = Field(default=1800, gt=0)
     mcp_max_sessions: int | None = Field(default=None, gt=0)
 
