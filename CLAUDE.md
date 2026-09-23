@@ -77,11 +77,12 @@ src/mcp_gitlab/
     diffs.py        # changed-file summaries (PRD-00 §10 large-payload discipline)
     threads.py      # discussions and notes, shared by merge requests and issues
     time_tracking.py  # estimates and time spent, shared by merge requests and issues
-    projects/       # PRD-01: gitlab_projects, gitlab_branches, gitlab_tags
+    projects/       # PRD-01: gitlab_projects, gitlab_branches, gitlab_tags, gitlab_badges
     repository/     # PRD-02: gitlab_repository_tree, gitlab_files, gitlab_commits
     merge_requests/ # PRD-03: gitlab_merge_requests, gitlab_mr_reviews
     issues/         # PRD-04: gitlab_issues, gitlab_issue_notes, gitlab_labels, gitlab_milestones
-    pipelines/      # PRD-05: gitlab_pipelines, gitlab_jobs, gitlab_ci_variables
+    pipelines/      # PRD-05: gitlab_pipelines, gitlab_jobs, gitlab_ci_variables,
+                    #   gitlab_pipeline_schedules, gitlab_runners
     releases/       # PRD-06: gitlab_releases, gitlab_release_links
     search/         # PRD-07: gitlab_search
     collaboration/  # PRD-08: gitlab_members, gitlab_users, gitlab_wikis, gitlab_webhooks

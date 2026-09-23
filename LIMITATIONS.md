@@ -26,7 +26,7 @@ Server-wide:
 Per toolset, deferred by each PRD's "Out of Scope (v1)" section unless noted:
 
 - `issues`: promoting a project label or milestone to its group. (PRD-04 §5)
-- `pipelines`: pipeline schedules; runner management. (PRD-05 §5)
+- `pipelines`: pipeline schedule inputs, for pipelines that declare `spec:inputs`. (PRD-05 §5)
 - `collaboration`: snippets (a Phase 2 candidate, PRD-08 §5); group wikis (PRD-08 open question
   2); setting webhook custom headers and URL variables, which are shown by key but can't be set;
   clearing a membership's expiry date (both in PRD-08's revision note).
@@ -148,10 +148,11 @@ Tools:
 
 - **One coarse tool per domain,** taking an `action` argument: 22 tools rather than one per GitLab
   endpoint. (PRD-00 §6)
-- **`confirm: true` is required by** `gitlab_projects.delete` and `transfer`, `gitlab_branches.delete` and
-  `delete_merged`, `gitlab_merge_requests.merge`, `gitlab_issues.delete`,
-  `gitlab_pipelines.delete`, and `gitlab_members.update` and `remove`. Deleting a release doesn't
-  need it, since the tag stays. (PRD-01 §4, PRD-06 §4)
+- **`confirm: true` is required by** `gitlab_projects.delete` and `transfer`,
+  `gitlab_branches.delete` and `delete_merged`, `gitlab_merge_requests.merge`,
+  `gitlab_issues.delete`, `gitlab_pipelines.delete`, `gitlab_runners.delete`, and
+  `gitlab_members.update` and `remove`. Deleting a release doesn't need it, since the tag stays.
+  (PRD-01 §4, PRD-05, PRD-06 §4)
 - **File content is text,** or base64 when it isn't UTF-8. `create_directory` commits
   `<dir>/.gitkeep`, since Git stores no empty directories. A file `update` or `delete` needs
   `last_commit_id`, so a concurrent edit surfaces as GitLab's conflict error. (PRD-02 §4)
@@ -166,7 +167,10 @@ Tools:
   through a log and `full: true` returns all of it. (PRD-05)
 - **CI/CD variable values are hidden in every response,** unless `get` is called with
   `reveal_value: true`. `update` without `value` keeps the current value without passing it
-  through the model. (PRD-05 §4)
+  through the model. Pipeline schedule variables are hidden the same way, unless `get` is called
+  with `reveal_values: true`. (PRD-05 §4)
+- **No runner tokens:** registering a runner and resetting its tokens are left out, because
+  GitLab answers each with a secret token. (PRD-05 §4)
 - **Webhook secret and signing tokens are write-only;** custom headers and URL variables are shown
   by key only. (PRD-08 §4)
 - **Wiki `update` keeps the page's format:** it reads the format first, because GitLab resets an

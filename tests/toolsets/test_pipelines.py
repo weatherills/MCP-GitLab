@@ -1,4 +1,5 @@
-"""PRD-05 toolset `pipelines`: gitlab_pipelines, gitlab_jobs, gitlab_ci_variables."""
+"""PRD-05 toolset `pipelines`: gitlab_pipelines, gitlab_jobs, gitlab_ci_variables,
+gitlab_pipeline_schedules, gitlab_runners."""
 
 import base64
 
@@ -13,6 +14,7 @@ P = "/projects/grp%2Fapp"
 PIPE = f"{P}/pipelines/77"
 JOB = f"{P}/jobs/5"
 PAGE = {"page": "1", "per_page": "20"}
+SCHEDULE = f"{P}/pipeline_schedules/13"
 SECRET = "s3cr3t-value-never-shown"
 VARIABLE = {
     "key": "DEPLOY_TOKEN",
@@ -22,6 +24,8 @@ VARIABLE = {
     "environment_scope": "*",
     "variable_type": "env_var",
 }
+SCHEDULE_VARIABLE = {"key": "TARGET", "value": SECRET, "variable_type": "env_var"}
+SCHEDULE_DETAILS = {"id": 13, "cron": "0 2 * * *", "variables": [SCHEDULE_VARIABLE]}
 
 CASES = [
     Case(
@@ -180,6 +184,179 @@ CASES = [
         {"action": "delete", "project": "grp/app", "key": "DEPLOY_TOKEN"},
         "DELETE",
         f"{P}/variables/DEPLOY_TOKEN",
+        response=StubResponse(status=204),
+    ),
+    Case(
+        "gitlab_pipeline_schedules",
+        {"action": "list", "project": "grp/app", "scope": "active"},
+        "GET",
+        f"{P}/pipeline_schedules",
+        {**PAGE, "scope": "active"},
+        response=LIST,
+    ),
+    Case(
+        "gitlab_pipeline_schedules",
+        {"action": "get", "project": "grp/app", "pipeline_schedule_id": 13},
+        "GET",
+        SCHEDULE,
+        response=StubResponse(json=SCHEDULE_DETAILS),
+    ),
+    Case(
+        "gitlab_pipeline_schedules",
+        {"action": "list_pipelines", "project": "grp/app", "pipeline_schedule_id": 13},
+        "GET",
+        f"{SCHEDULE}/pipelines",
+        PAGE,
+        response=LIST,
+    ),
+    Case(
+        "gitlab_pipeline_schedules",
+        {
+            "action": "create",
+            "project": "grp/app",
+            "description": "Nightly",
+            "ref": "main",
+            "cron": "0 2 * * *",
+            "cron_timezone": "UTC",
+        },
+        "POST",
+        f"{P}/pipeline_schedules",
+        body={"description": "Nightly", "ref": "main", "cron": "0 2 * * *", "cron_timezone": "UTC"},
+        response=StubResponse(status=201, json={"id": 13}),
+    ),
+    Case(
+        "gitlab_pipeline_schedules",
+        {"action": "update", "project": "grp/app", "pipeline_schedule_id": 13, "active": False},
+        "PUT",
+        SCHEDULE,
+        body={"active": False},
+    ),
+    Case(
+        "gitlab_pipeline_schedules",
+        {"action": "take_ownership", "project": "grp/app", "pipeline_schedule_id": 13},
+        "POST",
+        f"{SCHEDULE}/take_ownership",
+    ),
+    Case(
+        "gitlab_pipeline_schedules",
+        {"action": "play", "project": "grp/app", "pipeline_schedule_id": 13},
+        "POST",
+        f"{SCHEDULE}/play",
+        response=StubResponse(status=201, json={"message": "201 Created"}),
+    ),
+    Case(
+        "gitlab_pipeline_schedules",
+        {"action": "delete", "project": "grp/app", "pipeline_schedule_id": 13},
+        "DELETE",
+        SCHEDULE,
+        response=StubResponse(status=204),
+    ),
+    Case(
+        "gitlab_pipeline_schedules",
+        {
+            "action": "create_variable",
+            "project": "grp/app",
+            "pipeline_schedule_id": 13,
+            "key": "TARGET",
+            "value": SECRET,
+        },
+        "POST",
+        f"{SCHEDULE}/variables",
+        body={"key": "TARGET", "value": SECRET},
+        response=StubResponse(status=201, json=SCHEDULE_VARIABLE),
+    ),
+    Case(
+        "gitlab_pipeline_schedules",
+        {
+            "action": "update_variable",
+            "project": "grp/app",
+            "pipeline_schedule_id": 13,
+            "key": "TARGET",
+            "variable_type": "file",
+        },
+        "PUT",
+        f"{SCHEDULE}/variables/TARGET",
+        body={"variable_type": "file"},
+        response=StubResponse(json=SCHEDULE_VARIABLE),
+    ),
+    Case(
+        "gitlab_pipeline_schedules",
+        {
+            "action": "delete_variable",
+            "project": "grp/app",
+            "pipeline_schedule_id": 13,
+            "key": "TARGET",
+        },
+        "DELETE",
+        f"{SCHEDULE}/variables/TARGET",
+        response=StubResponse(status=202, json=SCHEDULE_VARIABLE),
+    ),
+    Case(
+        "gitlab_runners",
+        {"action": "list", "status": "online", "tag_list": ["docker", "linux"]},
+        "GET",
+        "/runners",
+        {**PAGE, "status": "online", "tag_list": "docker,linux"},
+        response=LIST,
+    ),
+    Case(
+        "gitlab_runners",
+        {"action": "list", "project": "grp/app", "type": "instance_type"},
+        "GET",
+        f"{P}/runners",
+        {**PAGE, "type": "instance_type"},
+        response=LIST,
+    ),
+    Case(
+        "gitlab_runners",
+        {"action": "list", "group": "grp", "paused": True},
+        "GET",
+        "/groups/grp/runners",
+        {**PAGE, "paused": "true"},
+        response=LIST,
+    ),
+    Case(
+        "gitlab_runners",
+        {"action": "get", "runner_id": 6, "include_projects": False},
+        "GET",
+        "/runners/6",
+        {"include_projects": "false"},
+    ),
+    Case(
+        "gitlab_runners",
+        {"action": "update", "runner_id": 6, "paused": True, "tag_list": ["docker"]},
+        "PUT",
+        "/runners/6",
+        body={"paused": True, "tag_list": ["docker"]},
+    ),
+    Case(
+        "gitlab_runners",
+        {"action": "list_jobs", "runner_id": 6, "job_status": "running", "sort": "asc"},
+        "GET",
+        "/runners/6/jobs",
+        {**PAGE, "status": "running", "sort": "asc"},
+        response=LIST,
+    ),
+    Case(
+        "gitlab_runners",
+        {"action": "assign", "project": "grp/app", "runner_id": 6},
+        "POST",
+        f"{P}/runners",
+        body={"runner_id": 6},
+        response=StubResponse(status=201, json={"id": 6}),
+    ),
+    Case(
+        "gitlab_runners",
+        {"action": "unassign", "project": "grp/app", "runner_id": 6},
+        "DELETE",
+        f"{P}/runners/6",
+        response=StubResponse(status=204),
+    ),
+    Case(
+        "gitlab_runners",
+        {"action": "delete", "runner_id": 6, "confirm": True},
+        "DELETE",
+        "/runners/6",
         response=StubResponse(status=204),
     ),
 ]
@@ -437,3 +614,128 @@ async def test_downloads_follow_gitlabs_hand_off_without_the_pat(
     assert to_gitlab.headers["authorization"].startswith("Bearer ")
     assert to_storage.url.host == "objects.example.com"
     assert "authorization" not in to_storage.headers
+
+
+@pytest.mark.parametrize(
+    ("action", "method", "path", "extra"),
+    [
+        ("list", "GET", f"{P}/pipeline_schedules", {}),
+        ("get", "GET", SCHEDULE, {"pipeline_schedule_id": 13}),
+        (
+            "create",
+            "POST",
+            f"{P}/pipeline_schedules",
+            {"description": "Nightly", "ref": "main", "cron": "0 2 * * *"},
+        ),
+        ("update", "PUT", SCHEDULE, {"pipeline_schedule_id": 13, "cron": "0 3 * * *"}),
+        ("take_ownership", "POST", f"{SCHEDULE}/take_ownership", {"pipeline_schedule_id": 13}),
+    ],
+)
+async def test_schedule_variable_values_are_never_returned_by_default(
+    action: str, method: str, path: str, extra: dict[str, object]
+) -> None:
+    stub = GitLabStub()
+    body = [SCHEDULE_DETAILS] if action == "list" else SCHEDULE_DETAILS
+    stub.add(method, path, StubResponse(json=body))
+    arguments = {"action": action, "project": "grp/app", **extra}
+    outcome = await call(stub, "gitlab_pipeline_schedules", arguments)
+    assert outcome.is_error is False, outcome.structured
+    assert SECRET not in str(outcome.structured)
+    schedule = outcome.structured["items"][0] if action == "list" else outcome.structured
+    assert schedule["variables"] == [
+        {"key": "TARGET", "variable_type": "env_var", "value_hidden": True}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("action", "method", "path", "extra"),
+    [
+        ("create_variable", "POST", f"{SCHEDULE}/variables", {"value": SECRET}),
+        ("update_variable", "PUT", f"{SCHEDULE}/variables/TARGET", {"value": "x"}),
+        ("delete_variable", "DELETE", f"{SCHEDULE}/variables/TARGET", {}),
+    ],
+)
+async def test_schedule_variable_writes_never_echo_the_value(
+    action: str, method: str, path: str, extra: dict[str, object]
+) -> None:
+    stub = GitLabStub()
+    stub.add(method, path, StubResponse(json=SCHEDULE_VARIABLE))
+    arguments = {
+        "action": action,
+        "project": "grp/app",
+        "pipeline_schedule_id": 13,
+        "key": "TARGET",
+        **extra,
+    }
+    outcome = await call(stub, "gitlab_pipeline_schedules", arguments)
+    assert outcome.is_error is False, outcome.structured
+    assert SECRET not in str(outcome.structured)
+
+
+async def test_schedule_variable_values_are_revealed_only_on_request() -> None:
+    stub = GitLabStub()
+    stub.add("GET", SCHEDULE, StubResponse(json=SCHEDULE_DETAILS))
+    arguments = {"action": "get", "project": "grp/app", "pipeline_schedule_id": 13}
+    outcome = await call(stub, "gitlab_pipeline_schedules", {**arguments, "reveal_values": True})
+    assert outcome.structured["variables"][0]["value"] == SECRET
+
+
+async def test_a_schedule_without_variables_is_returned_as_is() -> None:
+    # Reporters see a schedule without its variables.
+    stub = GitLabStub()
+    stub.add("GET", SCHEDULE, StubResponse(json={"id": 13, "cron": "0 2 * * *"}))
+    arguments = {"action": "get", "project": "grp/app", "pipeline_schedule_id": 13}
+    outcome = await call(stub, "gitlab_pipeline_schedules", arguments)
+    assert outcome.structured == {"id": 13, "cron": "0 2 * * *"}
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"action": "update", "pipeline_schedule_id": 13},
+        {"action": "update_variable", "pipeline_schedule_id": 13, "key": "TARGET"},
+        {"action": "create", "description": "Nightly", "ref": "main"},
+    ],
+)
+async def test_schedule_writes_need_their_fields(arguments: dict[str, object]) -> None:
+    stub = GitLabStub()
+    outcome = await call(stub, "gitlab_pipeline_schedules", {**arguments, "project": "grp/app"})
+    assert outcome.structured["error"]["code"] == "invalid_arguments"
+    assert stub.requests == []
+
+
+async def test_runner_delete_requires_confirmation() -> None:
+    stub = GitLabStub()
+    outcome = await call(stub, "gitlab_runners", {"action": "delete", "runner_id": 6})
+    assert outcome.structured["error"]["code"] == "confirmation_required"
+    assert stub.requests == []
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"action": "list", "project": "grp/app", "group": "grp"},
+        {"action": "update", "runner_id": 6},
+        {"action": "assign", "runner_id": 6},
+    ],
+)
+async def test_runner_actions_check_their_arguments(arguments: dict[str, object]) -> None:
+    stub = GitLabStub()
+    outcome = await call(stub, "gitlab_runners", arguments)
+    assert outcome.structured["error"]["code"] == "invalid_arguments"
+    assert stub.requests == []
+
+
+def test_no_runner_action_hands_back_a_token() -> None:
+    # Registering a runner and resetting tokens answer with a secret token (PRD-05 section 5).
+    from mcp_gitlab.toolsets.pipelines.runners import RUNNERS_TOOL
+
+    assert {action.name for action in RUNNERS_TOOL.actions} == {
+        "list",
+        "get",
+        "update",
+        "list_jobs",
+        "assign",
+        "unassign",
+        "delete",
+    }
