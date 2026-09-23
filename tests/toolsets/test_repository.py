@@ -5,6 +5,9 @@ import base64
 import pytest
 
 from mcp_gitlab.config import Settings
+from mcp_gitlab.tools.schema import describe_tool
+from mcp_gitlab.toolsets.repository.commits import COMMITS_TOOL
+from mcp_gitlab.toolsets.repository.files import FILES_TOOL
 from tests.support import GitLabStub, StubResponse
 from tests.toolsets.wire import Case, assert_wire, call, dispatcher
 
@@ -445,3 +448,10 @@ async def test_file_writes_are_hidden_and_blocked_in_read_only_mode() -> None:
     )
     assert outcome.structured["error"]["code"] == "read_only_mode"
     assert stub.requests == []
+
+
+def test_multi_file_changes_are_steered_to_batch_commit() -> None:
+    files = describe_tool(FILES_TOOL, FILES_TOOL.actions)
+    commits = describe_tool(COMMITS_TOOL, COMMITS_TOOL.actions)
+    assert "batch_commit to change several files in one commit" in files
+    assert "batch_commit applies several file changes as one atomic commit" in commits

@@ -408,3 +408,32 @@ async def test_variable_keys_are_validated(key: str) -> None:
         GitLabStub(), "gitlab_ci_variables", {"action": "get", "project": "grp/app", "key": key}
     )
     assert outcome.structured["error"]["code"] == "invalid_arguments"
+
+
+@pytest.mark.parametrize(
+    ("action", "extra", "path"),
+    [
+        ("get_log", {}, f"{P}/jobs/5/trace"),
+        (
+            "get_artifact_file",
+            {"artifact_path": "dist/app.js"},
+            f"{P}/jobs/5/artifacts/dist/app.js",
+        ),
+    ],
+)
+async def test_downloads_follow_gitlabs_hand_off_without_the_pat(
+    action: str, extra: dict[str, str], path: str
+) -> None:
+    stub = GitLabStub()
+    storage = "https://objects.example.com/signed/blob?X-Signature=abc"
+    stub.add("GET", path, StubResponse(status=302, headers={"location": storage}))
+    stub.add("GET", "/signed/blob", StubResponse(content=b"line one\nline two\n"))
+    outcome = await call(
+        stub, "gitlab_jobs", {"action": action, "project": "grp/app", "job_id": 5, **extra}
+    )
+    assert outcome.is_error is False, outcome.structured
+    assert "line two" in str(outcome.structured)
+    to_gitlab, to_storage = stub.requests
+    assert to_gitlab.headers["authorization"].startswith("Bearer ")
+    assert to_storage.url.host == "objects.example.com"
+    assert "authorization" not in to_storage.headers

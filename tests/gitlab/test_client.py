@@ -1,5 +1,6 @@
 import logging
 import ssl
+from pathlib import Path
 
 import httpx
 import pytest
@@ -21,6 +22,7 @@ from mcp_gitlab.gitlab.retry import RetryPolicy
 from tests.support import ChunkedStream, GitLabStub, RecordingSleep, StubResponse
 
 TOKEN = "glpat-abcdefghijklmnopqrstu"
+TEST_CA = Path(__file__).parent.parent / "fixtures" / "test-ca.pem"
 
 
 def make_client(
@@ -248,6 +250,26 @@ async def test_token_never_reaches_logs(caplog: pytest.LogCaptureFixture) -> Non
         assert TOKEN not in repr(getattr(record, "fields", {}))
 
 
+async def test_each_gitlab_call_is_logged_with_its_outcome(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    stub = GitLabStub()
+    stub.add("GET", "/user", StubResponse(json={}, headers={"x-request-id": "gl-req-7"}))
+    with caplog.at_level(logging.INFO, logger="mcp_gitlab.gitlab.client"):
+        await make_client(stub).session(TOKEN).get("/user")
+    [record] = [r for r in caplog.records if r.getMessage() == "gitlab_request"]
+    fields = dict(record.fields)  # type: ignore[attr-defined]
+    duration = fields.pop("duration_ms")
+    assert isinstance(duration, float) and duration >= 0
+    assert fields == {
+        "method": "GET",
+        "path": "/user",
+        "attempt": 1,
+        "status": 200,
+        "gitlab_request_id": "gl-req-7",
+    }
+
+
 def test_session_hides_token_from_repr() -> None:
     assert TOKEN not in repr(make_client(GitLabStub()).session(TOKEN))
 
@@ -261,6 +283,17 @@ def test_tls_verification_can_be_skipped_for_self_hosted() -> None:
         gitlab_base_url="https://gitlab.internal/api/v4", gitlab_skip_tls_verify=True
     )
     assert _tls_verification(settings) is False
+
+
+def test_a_custom_ca_bundle_replaces_the_system_trust() -> None:
+    settings = Settings(
+        gitlab_base_url="https://gitlab.internal/api/v4", gitlab_ca_bundle=str(TEST_CA)
+    )
+    context = _tls_verification(settings)
+    assert isinstance(context, ssl.SSLContext)
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    trusted = [dict(pair for rdn in ca["subject"] for pair in rdn) for ca in context.get_ca_certs()]
+    assert trusted == [{"commonName": "mcp-gitlab test CA"}]
 
 
 async def test_cookies_never_carry_over_between_requests() -> None:

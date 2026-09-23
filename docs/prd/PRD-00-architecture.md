@@ -7,7 +7,8 @@
 > other; and it is **read-write**, able to create repositories, branches, directories, and files.
 > §2, §4, §5, §6, §7.2, §8–§11, and §13 are updated to match; the server-side `GITLAB_TOKEN`
 > fallback is removed. With all eight toolsets built, §6 and §8 now set the default selection:
-> every toolset.
+> every toolset. `MCP_JSON_RESPONSE` (§8) lets a deployment answer with plain JSON instead of SSE
+> (§4.2).
 
 ## 1. Overview
 
@@ -96,7 +97,8 @@ to 2026-07-28 costs little. Formal sign-off is still open (§13 Q1).
   request-free body (only notifications/responses) gets `202 Accepted`. A request gets back either
   `Content-Type: application/json` (one JSON-RPC response) or `Content-Type: text/event-stream`
   (server may stream related requests/notifications before the final response). The server must
-  support emitting either; the client must support consuming either.
+  support emitting either; the client must support consuming either. As built, responses are SSE
+  streams by default, and `MCP_JSON_RESPONSE=true` answers each request with one JSON body instead.
 - **GET** (server → client): opens a standalone SSE stream for async server-initiated messages.
   Server returns `text/event-stream` or `405` if it doesn't support server push outside a request.
   As built, stateless mode (the default, §5) answers `405` with `Allow: POST`, since there is no
@@ -241,6 +243,7 @@ but it is not a v1 requirement.
 | `GITLAB_MCP_READ_ONLY` | No | `false` | Hide and refuse all mutating actions (§6) |
 | `GITLAB_MCP_MAX_FILE_BYTES` | No | 1 MiB | Largest file content returned by file reads (PRD-02 §4) |
 | `MCP_STATELESS_HTTP` | No | `true` | Stateless Streamable HTTP; `false` enables sessions (§5) |
+| `MCP_JSON_RESPONSE` | No | `false` | Answer each request with one JSON body instead of an SSE stream (§4.2) |
 | `MCP_SESSION_IDLE_TIMEOUT` | No | `1800` s | Evict idle sessions (stateful mode only) |
 | `MCP_MAX_SESSIONS` | No | SDK default (10,000) | Cap concurrent sessions per instance (stateful mode only) |
 | `MCP_BIND_HOST` / `MCP_BIND_PORT` | No | `127.0.0.1:8080` | Listener address |

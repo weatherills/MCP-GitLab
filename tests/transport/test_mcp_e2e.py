@@ -170,3 +170,14 @@ async def test_2026_07_28_clients_are_served_statelessly() -> None:
         "explode",
     ]
     assert called["structuredContent"] == {"name": "w"}
+
+
+async def test_json_responses_work_with_the_mcp_client() -> None:
+    stub = GitLabStub()
+    stub.add("GET", "/projects/1/widgets/w", StubResponse(json={"name": "w"}))
+    async with mcp_session(build_app(stub, Settings(mcp_json_response=True))) as session:
+        result = await session.call_tool(
+            "fake_widgets", {"action": "get", "project": "1", "widget": "w"}
+        )
+    assert result.is_error is False
+    assert result.structured_content == {"name": "w"}

@@ -105,6 +105,8 @@ def build_http_app(
 def _session_options(settings: Settings) -> dict[str, Any]:
     options: dict[str, Any] = {
         "stateless": settings.mcp_stateless_http,
+        # SSE by default; one plain JSON body per request when the deployment asks (PRD-00 §4.2).
+        "json_response": settings.mcp_json_response,
         # The SDK only enables DNS-rebinding protection by itself on loopback binds.
         "security_settings": TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
