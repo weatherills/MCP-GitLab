@@ -9,6 +9,12 @@ from mcp_gitlab.gitlab import Page, encode_segment, project_path
 from mcp_gitlab.tools import Access, Action, ActionContext, ActionParams, PageParams, Tool
 from mcp_gitlab.toolsets.common import IsoDate, ProjectRef, query, with_csv_labels, with_hint
 from mcp_gitlab.toolsets.threads import NoteableRef
+from mcp_gitlab.toolsets.time_tracking import (
+    SpentTimeFields,
+    TimeEstimateFields,
+    TimeTrackingParams,
+    time_tracking_actions,
+)
 
 IssueIid = Annotated[
     int, Field(ge=1, description="The issue's IID: the number shown as #34 in GitLab.")
@@ -47,6 +53,14 @@ class IssueRef(NoteableRef):
     iid_field: ClassVar[str] = "issue_iid"
 
     issue_iid: IssueIid
+
+
+class IssueEstimate(IssueRef, TimeEstimateFields):
+    pass
+
+
+class IssueSpentTime(IssueRef, SpentTimeFields):
+    pass
 
 
 class ListIssuesParams(PageParams):
@@ -187,8 +201,8 @@ ISSUES_TOOL = Tool(
     name="gitlab_issues",
     title="GitLab issues",
     description=(
-        "Find, create, update, close, move, and link issues. Comments are in "
-        "gitlab_issue_notes; labels and milestones have their own tools."
+        "Find, create, update, close, move, and link issues, and track time on them. Comments "
+        "are in gitlab_issue_notes; labels and milestones have their own tools."
     ),
     actions=(
         Action(
@@ -235,6 +249,9 @@ ISSUES_TOOL = Tool(
             UnlinkIssueParams,
             unlink_issue,
             Access.WRITE,
+        ),
+        *time_tracking_actions(
+            "issue", TimeTrackingParams(IssueRef, IssueEstimate, IssueSpentTime)
         ),
     ),
 )

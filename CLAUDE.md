@@ -70,8 +70,9 @@ src/mcp_gitlab/
                     #   /mcp behind the 401 PAT gate, /healthz
   toolsets/
     __init__.py     # TOOLSETS — register each new toolset here
-    common.py       # shared param types (ProjectRef, NamespaceRef, Ref, access levels), query(),
-                    #   with_hint() to add advice to a GitLab error
+    common.py       # shared param types (ProjectRef, NamespaceRef, GroupRef, Ref, access levels),
+                    #   ProjectOrGroup (exactly one of the two), query(), with_hint() to add
+                    #   advice to a GitLab error
     content.py      # bytes to text-or-base64, and the file-too-large error
     diffs.py        # changed-file summaries (PRD-00 §10 large-payload discipline)
     threads.py      # discussions and notes, shared by merge requests and issues

@@ -25,7 +25,7 @@ Server-wide:
 
 Per toolset, deferred by each PRD's "Out of Scope (v1)" section unless noted:
 
-- `issues`: creating or editing group-level labels and milestones; time tracking. (PRD-04 §5)
+- `issues`: promoting a project label or milestone to its group. (PRD-04 §5)
 - `pipelines`: pipeline schedules; runner management. (PRD-05 §5)
 - `collaboration`: snippets (a Phase 2 candidate, PRD-08 §5); group wikis (PRD-08 open question
   2); setting webhook custom headers and URL variables, which are shown by key but can't be set;
@@ -69,6 +69,7 @@ Imposed by GitLab:
   - `merge` with `auto_merge` also sends the older `merge_when_pipeline_succeeds`, for GitLab
     before 17.11.
   - Since 18.10 an issue's author may delete it.
+  - The milestone list's `include_ancestors` needs 16.7; older versions ignore it.
 
   (PRD-03, PRD-04, PRD-05, PRD-08)
 - **No Git LFS objects, and no adding or removing submodules.** GitLab's REST API has no
