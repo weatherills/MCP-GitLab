@@ -9,7 +9,7 @@ from mcp_gitlab.tools.schema import describe_tool
 from mcp_gitlab.toolsets.repository.commits import COMMITS_TOOL
 from mcp_gitlab.toolsets.repository.files import FILES_TOOL
 from tests.support import GitLabStub, StubResponse
-from tests.toolsets.wire import Case, assert_wire, call, dispatcher
+from tests.toolsets.wire import Case, assert_wire, body_of, call, dispatcher
 
 LIST = StubResponse(json=[])
 P = "/projects/grp%2Fapp"
@@ -246,6 +246,71 @@ CASES = [
         f"{P}/repository/commits/abc123/comments",
         body={"note": "Nice", "path": "src/app.py", "line": 3, "line_type": "new"},
     ),
+    # A comment on the whole commit sends no position.
+    Case(
+        "gitlab_commits",
+        {"action": "create_comment", "project": "grp/app", "sha": "abc123", "note": "Ship it"},
+        "POST",
+        f"{P}/repository/commits/abc123/comments",
+        body={"note": "Ship it"},
+    ),
+    Case(
+        "gitlab_files",
+        {"action": "get_blame", "project": "grp/app", "file_path": "src/app.py", "ref": "main"},
+        "GET",
+        f"{P}/repository/files/src%2Fapp.py/blame",
+        {"ref": "main"},
+        response=LIST,
+    ),
+    Case(
+        "gitlab_files",
+        {
+            "action": "update",
+            "project": "grp/app",
+            "file_path": "bin/run",
+            "content": "#!/bin/sh\n",
+            "last_commit_id": "lc1",
+            "execute_filemode": True,
+            **COMMIT,
+        },
+        "PUT",
+        f"{P}/repository/files/bin%2Frun",
+        body={
+            **COMMIT,
+            "content": "#!/bin/sh\n",
+            "encoding": "text",
+            "last_commit_id": "lc1",
+            "execute_filemode": True,
+        },
+    ),
+    Case(
+        "gitlab_commits",
+        {
+            "action": "list_contributors",
+            "project": "grp/app",
+            "ref": "develop",
+            "order_by": "name",
+            "sort": "desc",
+        },
+        "GET",
+        f"{P}/repository/contributors",
+        {"page": "1", "per_page": "20", "ref": "develop", "order_by": "name", "sort": "desc"},
+        response=LIST,
+    ),
+    Case(
+        "gitlab_commits",
+        {
+            "action": "update_submodule",
+            "project": "grp/app",
+            "submodule": "vendor/lib",
+            "commit_sha": "ed899a2f",
+            "branch": "main",
+            "commit_message": "Bump lib",
+        },
+        "PUT",
+        f"{P}/repository/submodules/vendor%2Flib",
+        body={"commit_sha": "ed899a2f", "branch": "main", "commit_message": "Bump lib"},
+    ),
 ]
 
 
@@ -438,7 +503,13 @@ async def test_file_writes_are_hidden_and_blocked_in_read_only_mode() -> None:
         for v in registry.visible(request_context(read_only=True), None)
     }
     assert views["gitlab_files"] == ["get", "get_raw", "get_blame"]
-    assert views["gitlab_projects"] == ["list", "get", "list_forks"]
+    assert views["gitlab_projects"] == [
+        "list",
+        "get",
+        "get_languages",
+        "list_forks",
+        "list_transfer_locations",
+    ]
 
     stub = GitLabStub()
     outcome = await dispatcher(stub).call(
@@ -455,3 +526,49 @@ def test_multi_file_changes_are_steered_to_batch_commit() -> None:
     commits = describe_tool(COMMITS_TOOL, COMMITS_TOOL.actions)
     assert "batch_commit to change several files in one commit" in files
     assert "batch_commit applies several file changes as one atomic commit" in commits
+
+
+async def test_blame_range_must_run_forwards() -> None:
+    outcome = await call(
+        GitLabStub(),
+        "gitlab_files",
+        {
+            "action": "get_blame",
+            "project": 1,
+            "file_path": "a.txt",
+            "range_start": 9,
+            "range_end": 4,
+        },
+    )
+    assert outcome.structured["error"]["code"] == "invalid_arguments"
+
+
+async def test_an_oversized_file_is_refused_while_its_json_arrives() -> None:
+    stub = GitLabStub()
+    huge = b'{"content": "' + b"A" * 80_000 + b'"}'
+    stub.add("GET", "/projects/1/repository/files/big.bin", StubResponse(content=huge))
+    outcome = await call(
+        stub,
+        "gitlab_files",
+        {"action": "get", "project": 1, "file_path": "big.bin"},
+        Settings(gitlab_mcp_max_file_bytes=1000),
+    )
+    assert outcome.structured["error"]["code"] == "payload_too_large"
+
+
+async def test_a_submodule_update_without_a_message_lets_gitlab_write_one() -> None:
+    stub = GitLabStub()
+    stub.add("PUT", "/projects/1/repository/submodules/lib", StubResponse(json={"id": "c1"}))
+    outcome = await call(
+        stub,
+        "gitlab_commits",
+        {
+            "action": "update_submodule",
+            "project": 1,
+            "submodule": "lib",
+            "commit_sha": "e1",
+            "branch": "main",
+        },
+    )
+    assert outcome.is_error is False
+    assert body_of(stub.requests[0]) == {"commit_sha": "e1", "branch": "main"}

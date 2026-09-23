@@ -25,7 +25,6 @@ Server-wide:
 
 Per toolset, deferred by each PRD's "Out of Scope (v1)" section unless noted:
 
-- `repository`: Git LFS objects, repository statistics, submodules. (PRD-02 §5)
 - `merge_requests`: draft reviews that post several comments at once; customizing the squash
   commit message. (PRD-03 §5)
 - `issues`: creating or editing group-level labels and milestones; time tracking. (PRD-04 §5)
@@ -74,6 +73,8 @@ Imposed by GitLab:
   - Since 18.10 an issue's author may delete it.
 
   (PRD-03, PRD-04, PRD-05, PRD-08)
+- **No Git LFS objects, and no adding or removing submodules.** GitLab's REST API has no
+  endpoints for LFS objects, and only updates an existing submodule's commit. (PRD-02 §5)
 - **Tags carry no release notes.** GitLab's Tags API has no such field; create a release instead.
   (PRD-01)
 - **Issue threads can't be resolved.** GitLab's API resolves only merge request threads. (PRD-04)

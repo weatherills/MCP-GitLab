@@ -1,4 +1,5 @@
-"""gitlab_commits: history, diffs, atomic multi-file commits, cherry-pick, revert (PRD-02 s.3)."""
+"""gitlab_commits: history, diffs, atomic multi-file commits, cherry-pick, revert, submodule
+updates, and contributors (PRD-02 section 3)."""
 
 from typing import Annotated, Any, Literal
 
@@ -11,6 +12,15 @@ from mcp_gitlab.toolsets.diffs import summarize_commit, summarize_diffs
 
 Sha = Annotated[str, Field(min_length=1, description="Commit SHA, or a branch or tag name.")]
 TargetBranch = Annotated[str, Field(min_length=1, description="Branch to commit to.")]
+BranchOrTag = Annotated[
+    str | None,
+    Field(
+        default=None,
+        min_length=1,
+        description="Branch or tag: the one the statuses ran on (list_statuses), or whose history "
+        "to count (list_contributors; the default branch if omitted).",
+    ),
+]
 IncludeDiffFor = Annotated[
     list[str],
     Field(
@@ -104,9 +114,30 @@ class RevertParams(CommitParams):
 class ListStatusesParams(PageParams):
     project: ProjectRef
     sha: Sha
-    ref: str | None = Field(
-        default=None, min_length=1, description="Branch or tag the statuses ran on."
+    ref: BranchOrTag
+
+
+class ListContributorsParams(PageParams):
+    project: ProjectRef
+    ref: BranchOrTag
+    order_by: Literal["commits", "name", "email"] | None = Field(
+        default=None, description="Sort contributors by commit count (the default), name, or email."
     )
+    sort: Literal["asc", "desc"] | None = Field(
+        default=None, description="Sort direction; GitLab defaults to asc."
+    )
+
+
+class UpdateSubmoduleParams(ActionParams):
+    project: ProjectRef
+    submodule: str = Field(
+        min_length=1, description="The submodule's path in the repository, such as vendor/lib."
+    )
+    commit_sha: str = Field(
+        min_length=1, description="Commit, in the submodule's repository, to point it at."
+    )
+    branch: TargetBranch
+    commit_message: str | None = Field(default=None, min_length=1, description="Commit message.")
 
 
 class ListCommentsParams(PageParams):
@@ -198,6 +229,19 @@ async def create_comment(params: CreateCommentParams, ctx: ActionContext) -> Any
     )
 
 
+async def list_contributors(params: ListContributorsParams, ctx: ActionContext) -> Page:
+    return await ctx.gitlab.get_page(
+        f"{project_path(params.project)}/repository/contributors", params=query(params)
+    )
+
+
+async def update_submodule(params: UpdateSubmoduleParams, ctx: ActionContext) -> Any:
+    return await ctx.gitlab.put(
+        f"{project_path(params.project)}/repository/submodules/{encode_segment(params.submodule)}",
+        json_body=query(params, "submodule"),
+    )
+
+
 def _commits_path(project: int | str) -> str:
     return f"{project_path(project)}/repository/commits"
 
@@ -264,6 +308,21 @@ COMMITS_TOOL = Tool(
             "Comment on a commit.",
             CreateCommentParams,
             create_comment,
+            Access.WRITE,
+        ),
+        Action(
+            "list_contributors",
+            "List the people who committed to a branch, with their commit, addition, and "
+            "deletion counts.",
+            ListContributorsParams,
+            list_contributors,
+            Access.READ,
+        ),
+        Action(
+            "update_submodule",
+            "Point a submodule at another commit, as one commit on a branch.",
+            UpdateSubmoduleParams,
+            update_submodule,
             Access.WRITE,
         ),
     ),

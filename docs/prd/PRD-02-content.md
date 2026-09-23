@@ -5,6 +5,9 @@
 > **Revised 2026-09-22 (still Draft).** Added `gitlab_files` `create_directory`, since creating
 > directories and files is an explicit owner requirement (PRD-00 §2). File content now moves as text
 > by default and as base64 only when needed (§4). The size cap is `GITLAB_MCP_MAX_FILE_BYTES`.
+> **2026-09-23:** At the owner's request, `gitlab_commits` gains `update_submodule` and
+> `list_contributors`; repository statistics come from PRD-01's `gitlab_projects` (`get` with
+> `statistics`, and `get_languages`). Git LFS stays out: GitLab's REST API has no endpoints for it.
 
 ## 1. Overview
 
@@ -49,6 +52,8 @@ This is the toolset an AI coding agent uses most heavily once a project is ident
 | `revert` | `POST /projects/:id/repository/commits/:sha/revert` | Target branch |
 | `list_statuses` | `GET /projects/:id/repository/commits/:sha/statuses` | CI status per commit |
 | `list_comments` / `create_comment` | `GET`/`POST /projects/:id/repository/commits/:sha/comments` | |
+| `list_contributors` | `GET /projects/:id/repository/contributors` | Commit, addition, and deletion counts per person on `ref` (the default branch if omitted); `order_by`, `sort` |
+| `update_submodule` | `PUT /projects/:id/repository/submodules/:submodule` | Points an existing submodule at `commit_sha`, as one commit on `branch`; `commit_message` optional |
 
 ## 4. Non-Functional Requirements
 
@@ -77,8 +82,10 @@ This is the toolset an AI coding agent uses most heavily once a project is ident
 
 - Repository archive download (zip/tar/tar.gz of a whole ref) — a bulk/binary transfer concern,
   not a typical AI-agent operation.
-- Git LFS object management.
-- Repository size/statistics endpoints, submodule management.
+- Git LFS object management: GitLab's REST API has no endpoints for LFS objects, which move
+  through Git LFS itself.
+- Adding or removing submodules: GitLab's API only updates an existing submodule's commit
+  (`update_submodule`). Repository statistics are in PRD-01 (`gitlab_projects`).
 
 ## 6. Open Questions
 
