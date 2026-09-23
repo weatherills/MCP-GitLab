@@ -2,7 +2,8 @@
 
 Secrets are write-only (PRD-08 section 4): create and update accept a secret token and a
 signing token, and no response carries either back, even if GitLab were to send one. Custom
-headers and URL variables, which can hold credentials too, are shown by key only.
+headers and URL variables, which can hold credentials too, are set with their values but shown
+by key only.
 """
 
 from typing import Annotated, Any, Literal
@@ -10,7 +11,7 @@ from typing import Annotated, Any, Literal
 from pydantic import Field, model_validator
 
 from mcp_gitlab.core.errors import GitLabUnprocessableError
-from mcp_gitlab.gitlab import Page, project_path
+from mcp_gitlab.gitlab import Page, encode_segment, project_path
 from mcp_gitlab.tools import Access, Action, ActionContext, ActionParams, PageParams, Tool
 from mcp_gitlab.toolsets.common import ProjectRef, query, with_hint
 
@@ -39,6 +40,12 @@ Trigger = Literal[
 
 SECRET_FIELDS = frozenset({"token", "signing_token"})
 KEYED_SECRETS = ("custom_headers", "url_variables")
+WRITE_ONLY = "Write-only: never returned or logged."
+
+
+class KeyValue(ActionParams):
+    key: str = Field(min_length=1, description="The name.")
+    value: str = Field(description=f"The value. {WRITE_ONLY}")
 
 
 class HookSettings(ActionParams):
@@ -91,6 +98,16 @@ class HookSettings(ActionParams):
     emoji_events: EventFlag
     resource_access_token_events: EventFlag
     resource_deploy_token_events: EventFlag
+    custom_headers: list[KeyValue] | None = Field(
+        default=None,
+        description="Headers GitLab adds to each request, such as a credential the receiver "
+        f"checks (GitLab 17.1 and later). update adds or replaces the ones named. {WRITE_ONLY}",
+    )
+    url_variables: list[KeyValue] | None = Field(
+        default=None,
+        description="Values for {placeholders} in url, such as a token in its query string, so "
+        f"GitLab shows the URL without them. update adds or replaces the ones named. {WRITE_ONLY}",
+    )
 
 
 class ListHooksParams(PageParams):
@@ -114,8 +131,9 @@ class CreateHookParams(HookSettings, _NewHook):
 class _ChangedHook(HookParams):
     url: HookUrl | None = Field(
         default=None,
-        description="New URL. Changing it makes GitLab drop the secret token and custom "
-        "headers: send token again to keep one.",
+        description="New URL. Changing where GitLab sends events drops the secret token and "
+        "custom headers: send token again to keep one. custom_headers sent with it are set "
+        "after the URL changes.",
     )
 
 
@@ -129,6 +147,24 @@ class UpdateHookParams(HookSettings, _ChangedHook):
 
 class HookTestParams(HookParams):
     trigger: Trigger = Field(description="The kind of sample event to send.")
+
+
+HookEntryKey = Annotated[
+    str,
+    Field(
+        min_length=1,
+        description="The custom header's name, such as Authorization, or the URL variable's "
+        "name, as in {name} in the URL.",
+    ),
+]
+
+
+class HookEntryParams(HookParams):
+    key: HookEntryKey
+
+
+class SetHookEntryParams(HookEntryParams):
+    value: str = Field(description=f"The header's or variable's value. {WRITE_ONLY}")
 
 
 async def list_hooks(params: ListHooksParams, ctx: ActionContext) -> Page:
@@ -146,7 +182,15 @@ async def create_hook(params: CreateHookParams, ctx: ActionContext) -> Any:
 
 
 async def update_hook(params: UpdateHookParams, ctx: ActionContext) -> Any:
-    hook = await ctx.gitlab.put(_hook_path(params), json_body=query(params, "hook_id"))
+    body = query(params, "hook_id")
+    headers = body.get("custom_headers")
+    if headers is not None and ("url" in body or "url_variables" in body):
+        # GitLab clears the custom headers when the URL it sends to changes, even within the
+        # request that sets them, so they follow in a second update.
+        del body["custom_headers"]
+        await ctx.gitlab.put(_hook_path(params), json_body=body)
+        body = {"custom_headers": headers}
+    hook = await ctx.gitlab.put(_hook_path(params), json_body=body)
     return _written(hook, params, url_sent=params.url is not None)
 
 
@@ -165,6 +209,26 @@ async def send_test_event(params: HookTestParams, ctx: ActionContext) -> Any:
         )
         raise with_hint(exc, hint) from exc
     return {"hook_id": params.hook_id, "trigger": params.trigger, "gitlab_response": response}
+
+
+async def set_custom_header(params: SetHookEntryParams, ctx: ActionContext) -> Any:
+    await ctx.gitlab.put(_entry_path(params, "custom_headers"), json_body={"value": params.value})
+    return {"hook_id": params.hook_id, "custom_header": params.key, "set": True}
+
+
+async def delete_custom_header(params: HookEntryParams, ctx: ActionContext) -> Any:
+    await ctx.gitlab.delete(_entry_path(params, "custom_headers"))
+    return {"hook_id": params.hook_id, "custom_header": params.key, "deleted": True}
+
+
+async def set_url_variable(params: SetHookEntryParams, ctx: ActionContext) -> Any:
+    await ctx.gitlab.put(_entry_path(params, "url_variables"), json_body={"value": params.value})
+    return {"hook_id": params.hook_id, "url_variable": params.key, "set": True}
+
+
+async def delete_url_variable(params: HookEntryParams, ctx: ActionContext) -> Any:
+    await ctx.gitlab.delete(_entry_path(params, "url_variables"))
+    return {"hook_id": params.hook_id, "url_variable": params.key, "deleted": True}
 
 
 def redact(hook: Any) -> Any:
@@ -197,8 +261,13 @@ def _written(hook: Any, params: HookSettings, *, url_sent: bool = False) -> Any:
         )
     if url_sent and params.token is None and shown.get("token_present") is not True:
         notes.append(
-            "If the URL changed, GitLab dropped the secret token and custom headers: send "
-            "token again if the receiver checks it."
+            "If the URL changed, GitLab dropped the secret token: send token again if the "
+            "receiver checks it."
+        )
+    if url_sent and params.custom_headers is None and not shown.get("custom_headers"):
+        notes.append(
+            "If the URL changed, GitLab also dropped any custom headers: set them again with "
+            "custom_headers or set_custom_header."
         )
     return {**shown, "note": " ".join(notes)} if notes else shown
 
@@ -211,12 +280,17 @@ def _hook_path(params: HookParams) -> str:
     return f"{_hooks_path(params.project)}/{params.hook_id}"
 
 
+def _entry_path(params: HookEntryParams, kind: str) -> str:
+    return f"{_hook_path(params)}/{kind}/{encode_segment(params.key)}"
+
+
 WEBHOOKS_TOOL = Tool(
     name="gitlab_webhooks",
     title="GitLab project webhooks",
     description=(
         "List, create, update, delete, and test a project's webhooks: which events GitLab sends "
-        "to which URL. Secret and signing tokens are write-only and never returned."
+        "to which URL, with which custom headers. Secret and signing tokens, header values, and "
+        "URL variable values are write-only and never returned."
     ),
     actions=(
         Action("list", "List a project's webhooks.", ListHooksParams, list_hooks, Access.READ),
@@ -242,6 +316,35 @@ WEBHOOKS_TOOL = Tool(
             "Send the webhook a sample event now, to check the receiver works.",
             HookTestParams,
             send_test_event,
+            Access.WRITE,
+        ),
+        Action(
+            "set_custom_header",
+            "Add or replace one header GitLab sends with each request (GitLab 17.1 and later). "
+            "Changing the webhook's URL afterwards drops it.",
+            SetHookEntryParams,
+            set_custom_header,
+            Access.WRITE,
+        ),
+        Action(
+            "delete_custom_header",
+            "Stop sending one custom header.",
+            HookEntryParams,
+            delete_custom_header,
+            Access.WRITE,
+        ),
+        Action(
+            "set_url_variable",
+            "Add or replace the value of one {placeholder} in the webhook's URL.",
+            SetHookEntryParams,
+            set_url_variable,
+            Access.WRITE,
+        ),
+        Action(
+            "delete_url_variable",
+            "Remove one URL variable.",
+            HookEntryParams,
+            delete_url_variable,
             Access.WRITE,
         ),
     ),

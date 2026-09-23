@@ -104,6 +104,17 @@ class AddMemberParams(ActionParams):
 class UpdateMemberParams(MemberParams):
     access_level: Role
     expires_at: ExpiresAt
+    clear_expiry: bool = Field(
+        default=False,
+        description="Remove the membership's expiry date, so it no longer ends. Not with "
+        "expires_at.",
+    )
+
+    @model_validator(mode="after")
+    def _one_expiry(self) -> "UpdateMemberParams":
+        if self.clear_expiry and self.expires_at is not None:
+            raise ValueError("Give expires_at or clear_expiry, not both.")
+        return self
 
 
 class RemoveMemberParams(MemberParams):
@@ -150,7 +161,12 @@ async def add_member(params: AddMemberParams, ctx: ActionContext) -> Any:
 
 
 async def update_member(params: UpdateMemberParams, ctx: ActionContext) -> Any:
-    body = {**query(params, "user_id"), "access_level": level_of(params.access_level)}
+    body = {
+        **query(params, "user_id", "clear_expiry"),
+        "access_level": level_of(params.access_level),
+    }
+    if params.clear_expiry:
+        body["expires_at"] = None  # an explicit null is how GitLab clears the date
     try:
         member = await ctx.gitlab.put(_member_path(params), json_body=body)
     except GitLabNotFoundError as exc:

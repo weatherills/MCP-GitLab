@@ -27,17 +27,15 @@ Per toolset, deferred by each PRD's "Out of Scope (v1)" section unless noted:
 
 - `issues`: promoting a project label or milestone to its group. (PRD-04 §5)
 - `pipelines`: pipeline schedule inputs, for pipelines that declare `spec:inputs`. (PRD-05 §5)
-- `collaboration`: snippets (a Phase 2 candidate, PRD-08 §5); group wikis (PRD-08 open question
-  2); setting webhook custom headers and URL variables, which are shown by key but can't be set;
-  clearing a membership's expiry date (both in PRD-08's revision note).
 
 ## Won't fix
 
 Excluded by design:
 
 - **GitLab Premium and Ultimate features**, such as epics, security and vulnerability scanning,
-  compliance frameworks, release evidence, and custom project templates from a group. The target
-  is GitLab Free and Community Edition. (PRD-00 §3, PRD-01 §5, PRD-06 §5)
+  compliance frameworks, release evidence, custom project templates from a group, and group
+  wikis. The target is GitLab Free and Community Edition. (PRD-00 §3, PRD-01 §5, PRD-06 §5,
+  PRD-08 §5)
 - **Packages, the container registry, and instance administration APIs.** (PRD-00 §3)
 - **The stdio transport.** The server is remote-first. (PRD-00 §3)
 - **A server-side GitLab token.** `GITLAB_TOKEN` is ignored with a warning: every request must
@@ -65,7 +63,8 @@ Imposed by GitLab:
 - **Some actions depend on the GitLab version:**
   - `list_artifacts` needs 18.8 for its file tree, and falls back to the archive's metadata on
     older versions.
-  - Webhook signing tokens need 19.0.
+  - Webhook signing tokens need 19.0, and custom headers 17.1.
+  - Listing all the snippets you can see (`scope: all`) needs 16.3.
   - `merge` with `auto_merge` also sends the older `merge_when_pipeline_succeeds`, for GitLab
     before 17.11.
   - Since 18.10 an issue's author may delete it.
@@ -171,8 +170,12 @@ Tools:
   with `reveal_values: true`. (PRD-05 §4)
 - **No runner tokens:** registering a runner and resetting its tokens are left out, because
   GitLab answers each with a secret token. (PRD-05 §4)
-- **Webhook secret and signing tokens are write-only;** custom headers and URL variables are shown
-  by key only. (PRD-08 §4)
+- **Webhook secret and signing tokens, custom header values, and URL variable values are
+  write-only;** responses show headers and variables by key only. An `update` that changes the
+  URL and sets custom headers sends the headers in a second request, since GitLab clears them
+  whenever the URL changes. (PRD-08 §4)
+- **New snippets are private** unless `visibility` says otherwise; GitLab's own default for a
+  personal snippet is `internal`. (PRD-08)
 - **Wiki `update` keeps the page's format:** it reads the format first, because GitLab resets an
   omitted format to markdown. (PRD-08)
 - **Advanced Search availability is checked per call,** not probed at startup, so the server stays
@@ -229,4 +232,4 @@ detail.
 - Is 1 MiB the right file-size cap, and should `batch_commit` be the only way to write files?
   (PRD-02 Q1, Q2)
 - Is 500 lines the right default job-log tail? (PRD-05 Q1)
-- Block removing your own membership outright, and add group wikis? (PRD-08 Q1, Q2)
+- Block removing your own membership outright? (PRD-08 Q1)

@@ -85,7 +85,8 @@ src/mcp_gitlab/
                     #   gitlab_pipeline_schedules, gitlab_runners
     releases/       # PRD-06: gitlab_releases, gitlab_release_links
     search/         # PRD-07: gitlab_search
-    collaboration/  # PRD-08: gitlab_members, gitlab_users, gitlab_wikis, gitlab_webhooks
+    collaboration/  # PRD-08: gitlab_members, gitlab_users, gitlab_wikis, gitlab_webhooks,
+                    #   gitlab_snippets
 tests/              # mirrors src/; toolsets/wire.py drives actions and asserts the GitLab request
 deploy/             # Caddyfile (built into the standalone image) and compose.yaml (the bundle)
 ```

@@ -1,4 +1,5 @@
-"""PRD-08 toolset `collaboration`: gitlab_members, gitlab_users, gitlab_wikis, gitlab_webhooks."""
+"""PRD-08 toolset `collaboration`: gitlab_members, gitlab_users, gitlab_wikis, gitlab_webhooks,
+gitlab_snippets."""
 
 import logging
 from typing import Any
@@ -17,6 +18,7 @@ PAGE = {"page": "1", "per_page": "20"}
 MEMBER = {"id": 7, "username": "ada", "access_level": 30}
 HOOK_URL = "https://ci.example.com/hook"
 SECRET = "s3cret-hook-token"
+SNIPPET = f"{P}/snippets/21"
 
 CASES = [
     Case(
@@ -215,6 +217,199 @@ CASES = [
         "POST",
         f"{P}/hooks/3/test/push_events",
         response=StubResponse(status=201, json={"message": "201 Created"}),
+    ),
+    Case(
+        "gitlab_webhooks",
+        {
+            "action": "set_custom_header",
+            "project": "grp/app",
+            "hook_id": 3,
+            "key": "Authorization",
+            "value": SECRET,
+        },
+        "PUT",
+        f"{P}/hooks/3/custom_headers/Authorization",
+        body={"value": SECRET},
+        response=StubResponse(status=204),
+    ),
+    Case(
+        "gitlab_webhooks",
+        {"action": "delete_custom_header", "project": "grp/app", "hook_id": 3, "key": "X-Env"},
+        "DELETE",
+        f"{P}/hooks/3/custom_headers/X-Env",
+        response=StubResponse(status=204),
+    ),
+    Case(
+        "gitlab_webhooks",
+        {
+            "action": "set_url_variable",
+            "project": "grp/app",
+            "hook_id": 3,
+            "key": "tenant",
+            "value": SECRET,
+        },
+        "PUT",
+        f"{P}/hooks/3/url_variables/tenant",
+        body={"value": SECRET},
+        response=StubResponse(status=204),
+    ),
+    Case(
+        "gitlab_webhooks",
+        {"action": "delete_url_variable", "project": "grp/app", "hook_id": 3, "key": "tenant"},
+        "DELETE",
+        f"{P}/hooks/3/url_variables/tenant",
+        response=StubResponse(status=204),
+    ),
+    Case(
+        "gitlab_webhooks",
+        {
+            "action": "create",
+            "project": "grp/app",
+            "url": "https://ci.example.com/hook/{tenant}",
+            "custom_headers": [{"key": "Authorization", "value": SECRET}],
+            "url_variables": [{"key": "tenant", "value": "acme"}],
+        },
+        "POST",
+        f"{P}/hooks",
+        body={
+            "url": "https://ci.example.com/hook/{tenant}",
+            "custom_headers": [{"key": "Authorization", "value": SECRET}],
+            "url_variables": [{"key": "tenant", "value": "acme"}],
+        },
+        response=StubResponse(status=201, json={"id": 3}),
+    ),
+    Case(
+        "gitlab_members",
+        {
+            "action": "update",
+            "project": "grp/app",
+            "user_id": 7,
+            "access_level": "developer",
+            "clear_expiry": True,
+            "confirm": True,
+        },
+        "PUT",
+        f"{P}/members/7",
+        body={"access_level": 30, "expires_at": None},
+        response=StubResponse(json=MEMBER),
+    ),
+    Case(
+        "gitlab_snippets",
+        {"action": "list", "project": "grp/app"},
+        "GET",
+        f"{P}/snippets",
+        PAGE,
+        response=LIST,
+    ),
+    Case("gitlab_snippets", {"action": "list"}, "GET", "/snippets", PAGE, response=LIST),
+    Case(
+        "gitlab_snippets",
+        {"action": "list", "scope": "public"},
+        "GET",
+        "/snippets/public",
+        PAGE,
+        response=LIST,
+    ),
+    Case(
+        "gitlab_snippets",
+        {"action": "list", "scope": "all"},
+        "GET",
+        "/snippets/all",
+        PAGE,
+        response=LIST,
+    ),
+    Case(
+        "gitlab_snippets", {"action": "get", "project": "grp/app", "snippet_id": 21}, "GET", SNIPPET
+    ),
+    Case("gitlab_snippets", {"action": "get", "snippet_id": 5}, "GET", "/snippets/5"),
+    Case(
+        "gitlab_snippets",
+        {"action": "get_content", "project": "grp/app", "snippet_id": 21},
+        "GET",
+        f"{SNIPPET}/raw",
+        response=StubResponse(content=b"print('hi')\n"),
+    ),
+    Case(
+        "gitlab_snippets",
+        {"action": "get_content", "snippet_id": 5, "file_path": "lib/util.py"},
+        "GET",
+        "/snippets/5/files/HEAD/lib%2Futil.py/raw",
+        response=StubResponse(content=b"x = 1\n"),
+    ),
+    Case(
+        "gitlab_snippets",
+        {
+            "action": "create",
+            "project": "grp/app",
+            "title": "Retry helper",
+            "file_name": "retry.py",
+            "content": "def retry(): ...",
+        },
+        "POST",
+        f"{P}/snippets",
+        body={
+            "visibility": "private",
+            "title": "Retry helper",
+            "file_name": "retry.py",
+            "content": "def retry(): ...",
+        },
+        response=StubResponse(status=201, json={"id": 21}),
+    ),
+    Case(
+        "gitlab_snippets",
+        {
+            "action": "create",
+            "title": "Two files",
+            "visibility": "internal",
+            "files": [
+                {"file_path": "a.py", "content": "a = 1"},
+                {"file_path": "b.py", "content": "b = 2", "action": "create"},
+            ],
+        },
+        "POST",
+        "/snippets",
+        body={
+            "visibility": "internal",
+            "title": "Two files",
+            "files": [
+                {"file_path": "a.py", "content": "a = 1"},
+                {"file_path": "b.py", "content": "b = 2"},
+            ],
+        },
+        response=StubResponse(status=201, json={"id": 5}),
+    ),
+    Case(
+        "gitlab_snippets",
+        {
+            "action": "update",
+            "snippet_id": 5,
+            "files": [
+                {"action": "move", "file_path": "c.py", "previous_path": "b.py"},
+                {"action": "delete", "file_path": "a.py"},
+            ],
+        },
+        "PUT",
+        "/snippets/5",
+        body={
+            "files": [
+                {"action": "move", "file_path": "c.py", "previous_path": "b.py"},
+                {"action": "delete", "file_path": "a.py"},
+            ]
+        },
+    ),
+    Case(
+        "gitlab_snippets",
+        {"action": "update", "project": "grp/app", "snippet_id": 21, "visibility": "public"},
+        "PUT",
+        SNIPPET,
+        body={"visibility": "public"},
+    ),
+    Case(
+        "gitlab_snippets",
+        {"action": "delete", "project": "grp/app", "snippet_id": 21},
+        "DELETE",
+        SNIPPET,
+        response=StubResponse(status=204),
     ),
 ]
 
@@ -608,5 +803,168 @@ async def test_only_events_gitlab_can_sample_are_offered_for_testing() -> None:
         "gitlab_webhooks",
         {"action": "test", "project": "grp/app", "hook_id": 3, "trigger": "deployment_events"},
     )
+    assert error["code"] == "invalid_arguments"
+    assert stub.requests == []
+
+
+async def test_expires_at_and_clear_expiry_cannot_both_be_given() -> None:
+    stub = GitLabStub()
+    arguments = {
+        "action": "update",
+        "project": "grp/app",
+        "user_id": 7,
+        "access_level": "developer",
+        "expires_at": "2026-12-31",
+        "clear_expiry": True,
+        "confirm": True,
+    }
+    error = await fail(stub, "gitlab_members", arguments)
+    assert error["code"] == "invalid_arguments"
+    assert stub.requests == []
+
+
+async def test_custom_headers_follow_a_url_change_in_a_second_update() -> None:
+    # GitLab clears custom headers when the URL changes, even within the request setting them.
+    stub = GitLabStub()
+    stub.add("PUT", f"{P}/hooks/3", StubResponse(json={"id": 3}))
+    headers = [{"key": "Authorization", "value": SECRET}]
+    arguments = {
+        "action": "update",
+        "project": "grp/app",
+        "hook_id": 3,
+        "url": "https://new.example.com",
+        "custom_headers": headers,
+    }
+    await succeed(stub, "gitlab_webhooks", arguments)
+    assert [body_of(request) for request in stub.requests] == [
+        {"url": "https://new.example.com"},
+        {"custom_headers": headers},
+    ]
+
+
+async def test_custom_headers_alone_take_one_update() -> None:
+    stub = GitLabStub()
+    stub.add("PUT", f"{P}/hooks/3", StubResponse(json={"id": 3}))
+    headers = [{"key": "X-Env", "value": "prod"}]
+    arguments = {"action": "update", "project": "grp/app", "hook_id": 3, "custom_headers": headers}
+    await succeed(stub, "gitlab_webhooks", arguments)
+    assert [body_of(request) for request in stub.requests] == [{"custom_headers": headers}]
+
+
+@pytest.mark.parametrize(
+    ("arguments", "response", "warned"),
+    [
+        ({"url": "https://new.example.com"}, {"id": 3, "custom_headers": []}, True),
+        ({"url": "https://new.example.com"}, {"id": 3, "custom_headers": [{"key": "A"}]}, False),
+        (
+            {"url": "https://new.example.com", "custom_headers": [{"key": "A", "value": "b"}]},
+            {"id": 3},
+            False,
+        ),
+        ({"name": "CI"}, {"id": 3}, False),
+    ],
+)
+async def test_a_new_url_warns_that_gitlab_drops_custom_headers(
+    arguments: dict[str, Any], response: dict[str, Any], warned: bool
+) -> None:
+    stub = GitLabStub()
+    stub.add("PUT", f"{P}/hooks/3", StubResponse(json=response))
+    result = await succeed(
+        stub,
+        "gitlab_webhooks",
+        {"action": "update", "project": "grp/app", "hook_id": 3, **arguments},
+    )
+    assert ("custom headers" in result.get("note", "")) is warned
+
+
+@pytest.mark.parametrize("action", ["set_custom_header", "set_url_variable"])
+async def test_header_and_variable_values_reach_gitlab_but_not_the_caller_or_logs(
+    action: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    kind = "custom_headers" if action == "set_custom_header" else "url_variables"
+    stub = GitLabStub()
+    stub.add("PUT", f"{P}/hooks/3/{kind}/Token", StubResponse(status=204))
+    arguments = {
+        "action": action,
+        "project": "grp/app",
+        "hook_id": 3,
+        "key": "Token",
+        "value": SECRET,
+    }
+    with caplog.at_level(logging.DEBUG):
+        result = await succeed(stub, "gitlab_webhooks", arguments)
+    assert body_of(stub.requests[0]) == {"value": SECRET}
+    assert SECRET not in str(result)
+    for record in caplog.records:
+        assert SECRET not in str(record.__dict__)
+
+
+# gitlab_snippets
+
+
+async def test_snippet_content_that_is_not_utf8_comes_back_as_base64() -> None:
+    stub = GitLabStub()
+    stub.add("GET", f"{SNIPPET}/raw", StubResponse(content=b"\xff\xfe"))
+    arguments = {"action": "get_content", "project": "grp/app", "snippet_id": 21}
+    result = await succeed(stub, "gitlab_snippets", arguments)
+    assert result["encoding"] == "base64"
+    assert result["content"] == "//4="
+
+
+async def test_an_oversized_snippet_file_is_refused() -> None:
+    from mcp_gitlab.config import Settings
+
+    stub = GitLabStub()
+    stub.add("GET", "/snippets/5/files/v1/big.txt/raw", StubResponse(content=b"x" * 64))
+    arguments = {"action": "get_content", "snippet_id": 5, "file_path": "big.txt", "ref": "v1"}
+    outcome = await call(stub, "gitlab_snippets", arguments, Settings(gitlab_mcp_max_file_bytes=16))
+    error = outcome.structured["error"]
+    assert error["code"] == "payload_too_large"
+    assert error["message"].startswith("'big.txt' ")
+    assert "GITLAB_MCP_MAX_FILE_BYTES" in error["message"]
+    assert "smaller file" in error["message"]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"action": "list", "project": "grp/app", "scope": "all"},
+        {"action": "create", "title": "t"},
+        {"action": "create", "title": "t", "content": "x"},
+        {
+            "action": "create",
+            "title": "t",
+            "content": "x",
+            "file_name": "x",
+            "files": [{"file_path": "a", "content": "a"}],
+        },
+        {
+            "action": "create",
+            "title": "t",
+            "file_name": "x",
+            "files": [{"file_path": "a", "content": "a"}],
+        },
+        {"action": "create", "title": "t", "files": [{"file_path": "a"}]},
+        {
+            "action": "create",
+            "title": "t",
+            "files": [{"file_path": "a", "content": "a", "action": "delete"}],
+        },
+        {"action": "update", "snippet_id": 5},
+        {"action": "update", "snippet_id": 5, "files": [{"file_path": "a", "content": "a"}]},
+        {"action": "update", "snippet_id": 5, "files": [{"file_path": "a", "action": "move"}]},
+        {
+            "action": "update",
+            "snippet_id": 5,
+            "content": "x",
+            "files": [{"file_path": "a", "action": "delete"}],
+        },
+    ],
+)
+async def test_snippet_arguments_are_checked_before_calling_gitlab(
+    arguments: dict[str, Any],
+) -> None:
+    stub = GitLabStub()
+    error = await fail(stub, "gitlab_snippets", arguments)
     assert error["code"] == "invalid_arguments"
     assert stub.requests == []
