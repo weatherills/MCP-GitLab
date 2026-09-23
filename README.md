@@ -22,7 +22,8 @@ HTTPS Gitlab MCP server that can connect to and work with non-enterprise Gitlab 
   Each tool takes an `action` argument (for example `gitlab_branches` with `action: "create"`).
   Every toolset is on by default.
 
-See [`CLAUDE.md`](CLAUDE.md) for the architecture, conventions, and how to add a toolset.
+See [`CLAUDE.md`](CLAUDE.md) for the architecture, conventions, and how to add a toolset, and
+[`LIMITATIONS.md`](LIMITATIONS.md) for known bugs, design decisions, and what isn't built.
 
 ## Running
 
@@ -50,8 +51,9 @@ headers:
 - `X-MCP-Toolsets: projects` — use a subset of the toolsets the server allows.
 - `X-MCP-Readonly: true` — hide and refuse every write action for this client.
 
-Destructive actions also need `confirm: true` in the tool call: deleting a project, branch,
-issue, or pipeline, merging a merge request, and changing or removing a project member.
+Destructive actions also need `confirm: true` in the tool call: deleting a project, a branch,
+all merged branches, an issue, or a pipeline, merging a merge request, and changing or removing
+a project member.
 
 ## Deploying
 

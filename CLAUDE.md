@@ -146,7 +146,9 @@ action, since the tool schema shows one description per parameter.
 
 ## Decisions made during implementation
 
-Recorded in the PRDs' revision notes; summarized here so they aren't re-litigated by accident:
+Recorded in the PRDs' revision notes; summarized here so they aren't re-litigated by accident.
+[`LIMITATIONS.md`](LIMITATIONS.md) has the full list, with known bugs and what isn't built or
+won't be; keep it current when you add a limitation or make a decision.
 
 - **MCP SDK:** `mcp>=2.2,<3`, using the lowlevel `mcp.server.Server`. SDK 2.2 serves protocol
   revision 2025-11-25 (PRD-00's target) and also answers 2026-07-28 requests on the same endpoint.
