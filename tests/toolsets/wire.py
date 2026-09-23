@@ -26,10 +26,19 @@ class Case:
     query: dict[str, str] = field(default_factory=dict)
     body: Any = None
     response: StubResponse = field(default_factory=lambda: StubResponse(json={}))
+    # Routes the action calls before this request, such as a read before a write:
+    # (method, path, response).
+    setup: tuple[tuple[str, str, StubResponse], ...] = ()
 
     @property
     def id(self) -> str:
         return f"{self.tool}.{self.arguments['action']}"
+
+    def stub(self, stub: GitLabStub) -> None:
+        """Queue this case's responses on the stub."""
+        for method, path, response in self.setup:
+            stub.add(method, path, response)
+        stub.add(self.method, self.path, self.response)
 
 
 def dispatcher(stub: GitLabStub, settings: Settings | None = None) -> Dispatcher:
@@ -68,7 +77,7 @@ def assert_request(stub: GitLabStub, case: Case) -> None:
 
 async def assert_wire(case: Case) -> ToolOutcome:
     stub = GitLabStub()
-    stub.add(case.method, case.path, case.response)
+    case.stub(stub)
     outcome = await call(stub, case.tool, case.arguments)
     assert outcome.is_error is False, outcome.structured
     assert_request(stub, case)

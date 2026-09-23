@@ -11,6 +11,12 @@ from mcp_gitlab.tools import Access, Action, ActionContext, ActionParams, PagePa
 from mcp_gitlab.toolsets.common import ProjectRef, query, with_csv_labels
 from mcp_gitlab.toolsets.diffs import summarize_commit, summarize_diffs
 from mcp_gitlab.toolsets.threads import NoteableRef
+from mcp_gitlab.toolsets.time_tracking import (
+    SpentTimeFields,
+    TimeEstimateFields,
+    TimeTrackingParams,
+    time_tracking_actions,
+)
 
 MergeRequestIid = Annotated[
     int, Field(ge=1, description="The merge request's IID: the number shown as !12 in GitLab.")
@@ -136,6 +142,22 @@ class MergeParams(MergeRequestRef):
         min_length=1,
         description="Merge only if this is still the source branch's head commit (get's sha).",
     )
+    merge_commit_message: str | None = Field(
+        default=None, min_length=1, description="Message for the merge commit, instead of GitLab's."
+    )
+    squash_commit_message: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Message for the squashed commit, with squash=true, instead of GitLab's.",
+    )
+
+
+class MergeRequestEstimate(MergeRequestRef, TimeEstimateFields):
+    pass
+
+
+class MergeRequestSpentTime(MergeRequestRef, SpentTimeFields):
+    pass
 
 
 class RebaseParams(MergeRequestRef):
@@ -307,8 +329,8 @@ MERGE_REQUESTS_TOOL = Tool(
     name="gitlab_merge_requests",
     title="GitLab merge requests",
     description=(
-        "Find, open, update, merge, and rebase merge requests, and read their diffs and commits. "
-        "Comments, threads, and approvals are in gitlab_mr_reviews."
+        "Find, open, update, merge, and rebase merge requests, read their diffs and commits, and "
+        "track time on them. Comments, threads, reviews, and approvals are in gitlab_mr_reviews."
     ),
     actions=(
         Action(
@@ -380,6 +402,10 @@ MERGE_REQUESTS_TOOL = Tool(
             RebaseParams,
             rebase,
             Access.WRITE,
+        ),
+        *time_tracking_actions(
+            "merge request",
+            TimeTrackingParams(MergeRequestRef, MergeRequestEstimate, MergeRequestSpentTime),
         ),
     ),
 )

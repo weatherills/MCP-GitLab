@@ -203,6 +203,103 @@ CASES = [
         {"page": "1", "per_page": "20"},
         response=LIST,
     ),
+    Case(
+        "gitlab_merge_requests",
+        {
+            "action": "merge",
+            **REF,
+            "squash": True,
+            "squash_commit_message": "Add login (#12)",
+            "merge_commit_message": "Merge login",
+            "confirm": True,
+        },
+        "PUT",
+        f"{MR}/merge",
+        body={
+            "squash": True,
+            "squash_commit_message": "Add login (#12)",
+            "merge_commit_message": "Merge login",
+        },
+    ),
+    Case("gitlab_merge_requests", {"action": "get_time_stats", **REF}, "GET", f"{MR}/time_stats"),
+    Case(
+        "gitlab_merge_requests",
+        {"action": "set_time_estimate", **REF, "duration": "3h30m"},
+        "POST",
+        f"{MR}/time_estimate",
+        body={"duration": "3h30m"},
+    ),
+    Case(
+        "gitlab_merge_requests",
+        {"action": "reset_time_estimate", **REF},
+        "POST",
+        f"{MR}/reset_time_estimate",
+    ),
+    Case(
+        "gitlab_merge_requests",
+        {"action": "add_spent_time", **REF, "duration": "45m", "summary": "Review"},
+        "POST",
+        f"{MR}/add_spent_time",
+        body={"duration": "45m", "summary": "Review"},
+    ),
+    Case(
+        "gitlab_merge_requests",
+        {"action": "reset_spent_time", **REF},
+        "POST",
+        f"{MR}/reset_spent_time",
+    ),
+    Case(
+        "gitlab_mr_reviews",
+        {"action": "list_reviewers", **REF},
+        "GET",
+        f"{MR}/reviewers",
+        {"page": "1", "per_page": "20"},
+        response=LIST,
+    ),
+    Case(
+        "gitlab_mr_reviews",
+        {"action": "list_draft_notes", **REF},
+        "GET",
+        f"{MR}/draft_notes",
+        response=LIST,
+    ),
+    Case(
+        "gitlab_mr_reviews",
+        {"action": "create_draft_note", **REF, "body": "Why not reuse the helper?"},
+        "POST",
+        f"{MR}/draft_notes",
+        body={"note": "Why not reuse the helper?"},
+        response=StubResponse(status=201, json={"id": 5}),
+    ),
+    Case(
+        "gitlab_mr_reviews",
+        {"action": "update_draft_note", **REF, "draft_note_id": 5, "body": "Reuse the helper."},
+        "PUT",
+        f"{MR}/draft_notes/5",
+        body={"note": "Reuse the helper."},
+        setup=(("GET", f"{MR}/draft_notes/5", StubResponse(json={"id": 5, "position": {}})),),
+    ),
+    Case(
+        "gitlab_mr_reviews",
+        {"action": "delete_draft_note", **REF, "draft_note_id": 5},
+        "DELETE",
+        f"{MR}/draft_notes/5",
+        response=StubResponse(status=204),
+    ),
+    Case(
+        "gitlab_mr_reviews",
+        {"action": "publish_draft_note", **REF, "draft_note_id": 5},
+        "PUT",
+        f"{MR}/draft_notes/5/publish",
+        response=StubResponse(status=204),
+    ),
+    Case(
+        "gitlab_mr_reviews",
+        {"action": "publish_review", **REF},
+        "POST",
+        f"{MR}/draft_notes/bulk_publish",
+        response=StubResponse(status=204),
+    ),
 ]
 
 
@@ -425,3 +522,147 @@ async def test_approval_rules_on_gitlab_free_explain_the_tier() -> None:
     assert error["code"] == "gitlab_not_found"
     assert "Premium" in error["message"]
     assert "list_approvals" in error["details"]["hint"]
+
+
+async def test_a_draft_on_a_diff_line_is_anchored_to_the_current_diff() -> None:
+    stub = GitLabStub()
+    stub.add("GET", MR, StubResponse(json={"diff_refs": DIFF_REFS}))
+    stub.add("POST", f"{MR}/draft_notes", StubResponse(status=201, json={"id": 6}))
+    arguments = {"file_path": "app.py", "new_line": 7, "body": "Off by one?"}
+    outcome = await call(
+        stub, "gitlab_mr_reviews", {"action": "create_draft_note", **REF, **arguments}
+    )
+    assert outcome.is_error is False
+    assert body_of(stub.requests[-1]) == {
+        "note": "Off by one?",
+        "position": {
+            "position_type": "text",
+            **DIFF_REFS,
+            "new_path": "app.py",
+            "old_path": "app.py",
+            "new_line": 7,
+        },
+    }
+
+
+async def test_a_draft_reply_can_resolve_its_thread() -> None:
+    stub = GitLabStub()
+    stub.add("POST", f"{MR}/draft_notes", StubResponse(status=201, json={"id": 7}))
+    arguments = {"discussion_id": "abc", "resolve_discussion": True, "body": "Fixed."}
+    await call(stub, "gitlab_mr_reviews", {"action": "create_draft_note", **REF, **arguments})
+    assert body_of(stub.requests[0]) == {
+        "note": "Fixed.",
+        "in_reply_to_discussion_id": "abc",
+        "resolve_discussion": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"discussion_id": "abc", "file_path": "app.py", "new_line": 3},
+        {"resolve_discussion": True},
+        {"file_path": "app.py"},
+        {"old_path": "old.py", "new_line": 3},
+    ],
+)
+async def test_a_draft_note_must_say_where_it_goes(arguments: dict[str, object]) -> None:
+    stub = GitLabStub()
+    outcome = await call(
+        stub, "gitlab_mr_reviews", {"action": "create_draft_note", **REF, "body": "x", **arguments}
+    )
+    assert outcome.structured["error"]["code"] == "invalid_arguments"
+    assert stub.requests == []
+
+
+async def test_editing_a_draft_keeps_it_on_its_diff_line() -> None:
+    # GitLab drops a draft's position unless the update sends it again.
+    position = {
+        "position_type": "text",
+        **DIFF_REFS,
+        "old_path": "app.py",
+        "new_path": "app.py",
+        "old_line": None,
+        "new_line": 7,
+        "line_range": None,
+    }
+    stub = GitLabStub()
+    stub.add("GET", f"{MR}/draft_notes/6", StubResponse(json={"id": 6, "position": position}))
+    stub.add("PUT", f"{MR}/draft_notes/6", StubResponse(json={"id": 6}))
+    arguments = {"draft_note_id": 6, "body": "Off by one."}
+    outcome = await call(
+        stub, "gitlab_mr_reviews", {"action": "update_draft_note", **REF, **arguments}
+    )
+    assert outcome.is_error is False
+    assert body_of(stub.requests[-1]) == {
+        "note": "Off by one.",
+        "position": {
+            "position_type": "text",
+            **DIFF_REFS,
+            "old_path": "app.py",
+            "new_path": "app.py",
+            "new_line": 7,
+        },
+    }
+
+
+async def test_a_review_summary_is_posted_as_a_comment_after_the_drafts() -> None:
+    # bulk_publish takes a summary only from GitLab 19.2; earlier versions drop it silently.
+    stub = GitLabStub()
+    stub.add("POST", f"{MR}/draft_notes/bulk_publish", StubResponse(status=204))
+    stub.add("POST", f"{MR}/notes", StubResponse(status=201, json={"id": 40}))
+    arguments = {"body": "Two small things, otherwise good.", "internal": True}
+    outcome = await call(
+        stub, "gitlab_mr_reviews", {"action": "publish_review", **REF, **arguments}
+    )
+    assert stub.paths() == [f"/api/v4{MR}/draft_notes/bulk_publish", f"/api/v4{MR}/notes"]
+    assert body_of(stub.requests[0]) is None
+    assert body_of(stub.requests[1]) == {
+        "body": "Two small things, otherwise good.",
+        "internal": True,
+    }
+    assert outcome.structured == {"published_review": 12, "summary": {"id": 40}}
+
+
+async def test_a_summary_that_fails_says_the_drafts_were_published() -> None:
+    stub = GitLabStub()
+    stub.add("POST", f"{MR}/draft_notes/bulk_publish", StubResponse(status=204))
+    stub.add("POST", f"{MR}/notes", StubResponse(status=403, json={"message": "403 Forbidden"}))
+    arguments = {"body": "Looks good."}
+    outcome = await call(
+        stub, "gitlab_mr_reviews", {"action": "publish_review", **REF, **arguments}
+    )
+    error = outcome.structured["error"]
+    assert error["code"] == "gitlab_forbidden"
+    assert "drafts were published" in error["message"]
+
+
+async def test_internal_applies_only_to_a_summary() -> None:
+    stub = GitLabStub()
+    arguments = {"internal": True}
+    outcome = await call(
+        stub, "gitlab_mr_reviews", {"action": "publish_review", **REF, **arguments}
+    )
+    assert outcome.structured["error"]["code"] == "invalid_arguments"
+    assert stub.requests == []
+
+
+async def test_an_instance_that_requires_sha_says_so() -> None:
+    stub = GitLabStub()
+    stub.add("PUT", f"{MR}/merge", StubResponse(status=400, json={"message": "sha is missing"}))
+    outcome = await call(stub, "gitlab_merge_requests", {"action": "merge", **REF, "confirm": True})
+    error = outcome.structured["error"]
+    assert error["code"] == "merge_blocked"
+    assert "requires sha" in error["message"]
+
+
+async def test_a_refusal_is_passed_through_when_the_merge_request_cannot_be_read() -> None:
+    stub = GitLabStub()
+    stub.add(
+        "PUT", f"{MR}/merge", StubResponse(status=405, json={"message": "405 Method Not Allowed"})
+    )
+    stub.add("GET", MR, StubResponse(status=403, json={"message": "403 Forbidden"}))
+    outcome = await call(stub, "gitlab_merge_requests", {"action": "merge", **REF, "confirm": True})
+    error = outcome.structured["error"]
+    assert error["code"] != "merge_blocked"
+    assert error["details"]["status"] == 405 if "status" in error["details"] else True

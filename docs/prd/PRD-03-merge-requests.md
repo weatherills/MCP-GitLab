@@ -6,6 +6,12 @@
 > `/diffs` endpoint because `/changes` is deprecated. `unapprove` is a `POST`. `approve` takes no
 > `approval_password`. `list_approval_rules` needs GitLab Premium. Diff-line comments are built,
 > which answers open question 2.
+>
+> **Revised 2026-09-23.** Added, from §5's former out-of-scope list: draft notes published
+> together as a review, and custom merge and squash commit messages. Also added: time tracking
+> on `gitlab_merge_requests` and `list_reviewers`. `publish_review` posts its summary as an
+> ordinary comment, because `bulk_publish` takes one only from GitLab 19.2. For the same reason
+> it sets no reviewer state (§5).
 
 ## 1. Overview
 
@@ -16,8 +22,10 @@ the full MR lifecycle plus the review mechanics (discussions, notes, approvals) 
 
 - CRUD merge requests, including state transitions (close/reopen/merge).
 - Read MR diffs and commit lists with the same large-payload discipline as PRD-02.
-- Review mechanics: discussions/threads, notes, approvals.
+- Review mechanics: discussions/threads, notes, approvals, and draft comments published together
+  as one review.
 - Merge and rebase actions.
+- Time tracking: estimates and time spent.
 
 ## 3. Functional Requirements
 
@@ -31,8 +39,11 @@ the full MR lifecycle plus the review mechanics (discussions, notes, approvals) 
 | `close` / `reopen` | `PUT …?state_event=close\|reopen` | |
 | `get_diff` | `GET /projects/:id/merge_requests/:iid/diffs` | Changed-files summary by default; per-file diff on request — same convention as PRD-02 §4. Paginated. (`/changes`, named in earlier drafts, was deprecated in GitLab 15.7 and is scheduled for removal in API v5.) |
 | `list_commits` | `GET /projects/:id/merge_requests/:iid/commits` | |
-| `merge` | `PUT /projects/:id/merge_requests/:iid/merge` | `squash`, `should_remove_source_branch`, `sha`, `auto_merge` (merge once checks pass; `merge_when_pipeline_succeeds` is sent too for GitLab before 17.11); **destructive/high-impact**, requires `confirm: true`. A refusal comes back as `merge_blocked` or `merge_pending` with `detailed_merge_status` and a `next_step` (§4) |
+| `merge` | `PUT /projects/:id/merge_requests/:iid/merge` | `squash`, `should_remove_source_branch`, `sha`, `auto_merge` (merge once checks pass; `merge_when_pipeline_succeeds` is sent too for GitLab before 17.11), `merge_commit_message`, `squash_commit_message`; **destructive/high-impact**, requires `confirm: true`. A refusal comes back as `merge_blocked` or `merge_pending` with `detailed_merge_status` and a `next_step` (§4) |
 | `rebase` | `PUT /projects/:id/merge_requests/:iid/rebase` | Runs in the background; poll `get` with `include_rebase_in_progress` |
+| `get_time_stats` | `GET /projects/:id/merge_requests/:iid/time_stats` | Estimate and time spent |
+| `set_time_estimate` / `reset_time_estimate` | `POST .../time_estimate` / `POST .../reset_time_estimate` | `duration` in GitLab's format (`3h30m`, `1d` = 8 hours) |
+| `add_spent_time` / `reset_spent_time` | `POST .../add_spent_time` / `POST .../reset_spent_time` | `duration` (a leading `-` subtracts), optional `summary` |
 
 ### `gitlab_mr_reviews`
 | Action | GitLab endpoint | Notes |
@@ -45,6 +56,12 @@ the full MR lifecycle plus the review mechanics (discussions, notes, approvals) 
 | `list_approvals` | `GET /projects/:id/merge_requests/:iid/approvals` | |
 | `approve` / `unapprove` | `POST /projects/:id/merge_requests/:iid/approve` / `POST .../unapprove` | Optional `sha` on approve. `approval_password` is deliberately not accepted: a user's password must never pass through an LLM tool call |
 | `list_approval_rules` | `GET /projects/:id/merge_requests/:iid/approval_rules` | Read-only — see Out of Scope. GitLab Premium/Ultimate only; on Free the error says so and points at `list_approvals` |
+| `list_reviewers` | `GET /projects/:id/merge_requests/:iid/reviewers` | Each reviewer's state (`unreviewed`, `reviewed`, `requested_changes`, ...). Paginated |
+| `list_draft_notes` | `GET /projects/:id/merge_requests/:iid/draft_notes` | The caller's unpublished comments. GitLab doesn't paginate this |
+| `create_draft_note` | `POST /projects/:id/merge_requests/:iid/draft_notes` | On the merge request, on a diff line (the same position fields as `create_discussion`), or as a reply in a thread (`discussion_id`, optional `resolve_discussion`) |
+| `update_draft_note` | `PUT .../draft_notes/:draft_note_id` | Reads the draft first and sends its diff position back: GitLab clears the position otherwise, turning a diff comment into a general one |
+| `delete_draft_note` / `publish_draft_note` | `DELETE .../draft_notes/:draft_note_id` / `PUT .../draft_notes/:draft_note_id/publish` | |
+| `publish_review` | `POST .../draft_notes/bulk_publish`, then `POST .../notes` | Publishes all the caller's drafts, then posts the optional summary (`body`, `internal`) as an ordinary comment |
 
 ## 4. Non-Functional Requirements
 
@@ -63,9 +80,9 @@ the full MR lifecycle plus the review mechanics (discussions, notes, approvals) 
 - **Creating/editing approval rules** (project-level governance config) — only reading existing
   rules and approving/unapproving against them. Rule authoring is an admin/governance concern,
   not a typical AI coding-agent action.
-- **Draft notes / pending review batching** (submit several comments as one pending review) — v1
-  posts discussions/notes immediately; batched draft reviews are a nice-to-have for later.
-- Squash-on-merge commit message customization beyond GitLab's default squash behavior.
+- **Setting a reviewer state** (reviewed, requested changes). GitLab's REST API sets one only
+  through `bulk_publish`, and only from GitLab 19.2; earlier versions ignore the parameter
+  without an error, so the tool would report a state it never set.
 
 ## 6. Open Questions
 
@@ -80,3 +97,5 @@ the full MR lifecycle plus the review mechanics (discussions, notes, approvals) 
 - GitLab Merge Requests API: https://docs.gitlab.com/api/merge_requests/
 - GitLab Discussions API: https://docs.gitlab.com/api/discussions/
 - GitLab Merge Request Approvals API: https://docs.gitlab.com/api/merge_request_approvals/
+- GitLab Draft Notes API: https://docs.gitlab.com/api/draft_notes/
+- GitLab time tracking (merge requests): https://docs.gitlab.com/api/merge_requests/#set-a-time-estimate-for-a-merge-request

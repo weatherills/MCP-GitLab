@@ -25,8 +25,6 @@ Server-wide:
 
 Per toolset, deferred by each PRD's "Out of Scope (v1)" section unless noted:
 
-- `merge_requests`: draft reviews that post several comments at once; customizing the squash
-  commit message. (PRD-03 §5)
 - `issues`: creating or editing group-level labels and milestones; time tracking. (PRD-04 §5)
 - `pipelines`: pipeline schedules; runner management. (PRD-05 §5)
 - `collaboration`: snippets (a Phase 2 candidate, PRD-08 §5); group wikis (PRD-08 open question
@@ -78,6 +76,9 @@ Imposed by GitLab:
 - **Tags carry no release notes.** GitLab's Tags API has no such field; create a release instead.
   (PRD-01)
 - **Issue threads can't be resolved.** GitLab's API resolves only merge request threads. (PRD-04)
+- **No reviewer state.** GitLab's REST API sets a reviewer's state (reviewed, requested changes)
+  only when publishing a review, and only from 19.2; earlier versions ignore it without an error.
+  `list_reviewers` shows the state. (PRD-03 §5)
 - **The wiki page list isn't paginated.** GitLab returns every page at once. (PRD-08)
 - **Job logs are downloaded whole** to return their tail, up to `GITLAB_MAX_RESPONSE_BYTES`,
   because GitLab's trace endpoint takes no range. (PRD-05 §4)
@@ -156,6 +157,10 @@ Tools:
 - **`gitlab_issues.list` defaults to open issues;** GitLab's own default is every state. (PRD-04)
 - **A refused merge** comes back as `merge_blocked` or `merge_pending`, with GitLab's
   `detailed_merge_status` and a next step. (PRD-03)
+- **Draft reviews:** `update_draft_note` reads the draft first and sends its diff position back,
+  because GitLab otherwise clears it, turning a comment on a diff line into a general one.
+  `publish_review` posts its summary as an ordinary comment after the drafts, which works on
+  every GitLab version. (PRD-03)
 - **Job logs** return the last 500 lines by default, cleaned of color codes; `offset` pages
   through a log and `full: true` returns all of it. (PRD-05)
 - **CI/CD variable values are hidden in every response,** unless `get` is called with

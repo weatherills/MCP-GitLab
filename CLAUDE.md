@@ -75,6 +75,7 @@ src/mcp_gitlab/
     content.py      # bytes to text-or-base64, and the file-too-large error
     diffs.py        # changed-file summaries (PRD-00 §10 large-payload discipline)
     threads.py      # discussions and notes, shared by merge requests and issues
+    time_tracking.py  # estimates and time spent, shared by merge requests and issues
     projects/       # PRD-01: gitlab_projects, gitlab_branches, gitlab_tags
     repository/     # PRD-02: gitlab_repository_tree, gitlab_files, gitlab_commits
     merge_requests/ # PRD-03: gitlab_merge_requests, gitlab_mr_reviews

@@ -42,7 +42,7 @@ async def test_tool_works_over_mcp(tool_name: str) -> None:
         for case in CASES[tool_name]:
             jsonschema.validate(case.arguments, schema)
             stub.reset()
-            stub.add(case.method, case.path, case.response)
+            case.stub(stub)
             result = await session.call_tool(tool_name, case.arguments)
             assert result.is_error is False, (case.id, result.structured_content)
             assert_request(stub, case)
