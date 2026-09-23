@@ -570,7 +570,7 @@ def caddy(tmp_path: Path, upstream: int, ca: trustme.CA | None = None) -> Iterat
         process = subprocess.Popen(argv, env=process_env, stdout=output, stderr=subprocess.STDOUT)
     try:
         deadline = time.monotonic() + 20
-        while not (root.exists() and _accepts(port)):
+        while not _serves_tls(port, root):
             if process.poll() is not None or time.monotonic() > deadline:
                 raise AssertionError(f"Caddy did not start:\n{log.read_text()}")
             time.sleep(0.1)
@@ -581,11 +581,17 @@ def caddy(tmp_path: Path, upstream: int, ca: trustme.CA | None = None) -> Iterat
             process.wait(timeout=10)
 
 
-def _accepts(port: int) -> bool:
+def _serves_tls(port: int, root: Path) -> bool:
+    """Whether Caddy completes a verified handshake for localhost. Listening isn't enough: with
+    its local CA, Caddy issues the certificate only after it starts listening."""
     try:
-        with socket.create_connection(("127.0.0.1", port), timeout=1):
+        context = ssl.create_default_context(cafile=str(root))
+        with (
+            socket.create_connection(("127.0.0.1", port), timeout=1) as raw,
+            context.wrap_socket(raw, server_hostname="localhost"),
+        ):
             return True
-    except OSError:
+    except OSError:  # includes ssl.SSLError, and a root certificate not written yet
         return False
 
 

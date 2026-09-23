@@ -197,6 +197,9 @@ Logging:
   doesn't look at the certificate's expiry.
 - **The local CA,** used when no certificate is provided, has a root valid for about 10 years,
   kept in the `/data` volume. If the volume is lost, clients must trust a new root.
+- **With the local CA, the certificate arrives just after the port opens.** Caddy issues it a
+  moment (about 50 ms here) after it starts listening, and a client that connects in that window
+  gets a TLS `internal_error` alert. The health check's start period covers it.
 - **Caddy's logs never include request headers,** because its error log redacts `Authorization`
   but not `PRIVATE-TOKEN`. There is no access log either. This trades away some debugging detail.
 - **HTTP/3, OCSP stapling, and Caddy's admin API are off:** there's no UDP port to publish, no
