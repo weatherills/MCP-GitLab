@@ -15,7 +15,7 @@
 
 .PARAMETER TaskName
     Scheduled task name to remove. Defaults to "MCP-GitLab" (or "MCP-GitLab (<Username>)" when
-    -Username is given), matching install-service.ps1's own default — pass the same -TaskName
+    -Username is given), matching install-service.ps1's own default - pass the same -TaskName
     you gave it if you overrode that there too.
 
 .EXAMPLE
