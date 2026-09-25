@@ -1,5 +1,6 @@
-    sub = parser.add_subparsers(dest="command")
-    svc = sub.add_parser("service", help="Start/stop/restart the server service.")
-    svc.add_argument("service_action", choices=["start", "stop", "restart"])
-    serve = sub.add_parser("serve", help="Run the MCP server (default).")
-    parser.add_argument(
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parse_args(argv)
+    if args.command == "service":
+        return _service(args.service_action)
+    # serve (explicit or default when no subcommand given)
+    try:
