@@ -61,7 +61,7 @@ src/mcp_gitlab/
   __main__.py       # `mcp-gitlab` entrypoint: settings, TLS policy, uvicorn; also `service`
                     #   (start/stop/restart), which just calls service.py
   service.py        # `mcp-gitlab service`: OS-independent detached-process start/stop/restart,
-                    #   for running outside Docker; deploy/windows/ wraps it for Windows users
+                    #   for running outside Docker
   standalone.py     # the standalone image's entrypoint: runs Caddy and the server, health check
   app.py            # create_app(): registry → GitLab client → dispatcher → MCP server → ASGI app
   config.py         # Settings (PRD-00 §8) and the startup safety checks (§4.3, §7.4, §9)
@@ -93,8 +93,8 @@ src/mcp_gitlab/
                     #   gitlab_snippets
 tests/              # mirrors src/; toolsets/wire.py drives actions and asserts the GitLab request
 deploy/             # Caddyfile (built into the standalone image), compose.yaml (the bundle), and
-                    #   windows/ (courtesy scripts wrapping `mcp-gitlab service`, not the intended
-                    #   deployment)
+                    #   windows/ (courtesy scripts registering `mcp-gitlab serve` as a Windows
+                    #   Scheduled Task, not the intended deployment)
 ```
 
 How one tool call flows: `transport/http.py` rejects a request without a PAT (`401`) →
@@ -201,8 +201,9 @@ mcp-gitlab service start   # the same, detached in the background (stop|restart 
 cd deploy && docker compose up -d   # the standalone image: https://$MCP_PUBLIC_HOST/mcp
 ```
 
-`deploy/windows/` wraps `mcp-gitlab service` in a Windows Scheduled Task, as a courtesy for Windows
-users — not a second supported deployment; the standalone image above is still the intended one.
+`deploy/windows/` registers `mcp-gitlab serve` as a Windows Scheduled Task, as a courtesy for
+Windows users — not a second supported deployment; the standalone image above is still the
+intended one.
 
 No `.env` is needed for the test suite. For manual runs, copy `.env.example` to `.env`. Clients send
 `Authorization: Bearer <PAT>` on every request.

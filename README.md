@@ -148,11 +148,11 @@ modes before it publishes.
 ### Windows (courtesy scripts)
 
 Linux + Docker (above) is the intended, supported deployment. [`deploy/windows/`](deploy/windows/)
-has two PowerShell scripts that wrap `mcp-gitlab service start|stop` in a Windows Scheduled Task,
-as an example and a courtesy for Windows users who want to run `mcp-gitlab` directly (no
-Docker/WSL) and have it come back after a logon — not a substitute for the Docker deployment, and
-not a real Windows Service (see that directory's README for what that distinction means in
-practice).
+has PowerShell scripts that register `mcp-gitlab serve` as a Windows Scheduled Task, as an example
+and a courtesy for Windows users who want to run `mcp-gitlab` directly (no Docker/WSL) and have it
+come back after a logon — not a substitute for the Docker deployment, and not a real Windows
+Service (see that directory's README for what that distinction means in practice, and why it uses
+a Scheduled Task rather than `mcp-gitlab service start|stop` directly).
 
 ## Development
 

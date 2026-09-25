@@ -15,8 +15,10 @@
 > **2026-09-25:** §9 adds `mcp-gitlab service start|stop|restart`, a stdlib-only background-process
 > manager for running without Docker (`os.kill` terminates a process the same way on POSIX and
 > Windows, so no platform-specific service manager is needed), and notes `deploy/windows/`'s
-> Scheduled-Task wrapper scripts for it — a courtesy for Windows users, not a second supported
-> deployment.
+> Scheduled-Task scripts — a courtesy for Windows users, not a second supported deployment. Those
+> scripts register `mcp-gitlab serve` directly as the task's own action rather than wrapping
+> `mcp-gitlab service start`: Task Scheduler's restart-on-failure needs to track the server process
+> itself, which conflicts with `service.py`'s own detach-and-return design.
 
 ## 1. Overview
 
@@ -297,10 +299,12 @@ provides.
 **Running without Docker.** `mcp-gitlab service start|stop|restart` runs the server as a detached
 background process outside the standalone image, tracked by a pid file (`service.py`); it needs no
 platform-specific service manager, since `os.kill` terminates a process the same way on POSIX and
-Windows. `deploy/windows/` wraps it in a Windows Scheduled Task as a courtesy for Windows users who
-want it to start automatically without Docker — not a substitute for the standalone image above,
-which remains the intended deployment, and not a real Windows Service (no Service Control Manager,
-no Session 0).
+Windows. `deploy/windows/` registers `mcp-gitlab serve` as a Windows Scheduled Task as a courtesy
+for Windows users who want it to start automatically without Docker — not a substitute for the
+standalone image above, which remains the intended deployment, and not a real Windows Service (no
+Service Control Manager, no Session 0). It registers `serve` directly rather than going through
+`mcp-gitlab service start`, since Task Scheduler's own restart-on-failure needs to track the server
+process itself.
 
 ## 10. Error Handling, Retries & Pagination (shared conventions)
 

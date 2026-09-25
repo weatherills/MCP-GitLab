@@ -1,41 +1,47 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Stops mcp-gitlab and removes the scheduled task install-service.ps1 registered.
+    Stops mcp-gitlab, removes the "MCP Servers\mcp-gitlab-server" scheduled task
+    install-service.ps1 registered, and removes the Startup-folder auto-start entry.
 
-.PARAMETER McpGitlabPath
-    Path to the mcp-gitlab executable, used to stop the running instance before the task that
-    would otherwise restart it is removed. If omitted, this looks first on PATH, then for a venv
-    at the repository's own conventional location relative to this script
-    (..\..\.venv\Scripts\mcp-gitlab.exe). If neither resolves, the task is still removed; only
-    the "stop the running process" step is skipped, with a warning.
+.DESCRIPTION
+    Mirrors install-service.ps1's own naming and stop logic exactly, so it reaches the same task
+    and process regardless of which options install-service.ps1 was run with:
+
+    - Calls stop-mcp-gitlab.ps1 first (not a bare Stop-ScheduledTask/Unregister-ScheduledTask):
+      that alone does not reliably stop mcp-gitlab.exe itself -- see that script's own comment.
+    - Removes the scheduled task with schtasks /delete, the same tool install-service.ps1 uses to
+      create it (Unregister-ScheduledTask talks to a different, WMI-based provider that was found
+      to fail outright with "Access is denied" on at least one managed machine -- see
+      install-service.ps1's own .DESCRIPTION).
+    - Removes start-mcp-gitlab-at-logon.vbs from the current account's Startup folder, the same
+      way install-service.ps1 places it there.
+
+.PARAMETER ProjectDir
+    Repository root. Defaults to two levels up from this script, matching install-service.ps1 --
+    pass the same -ProjectDir you gave it if you overrode that there too.
 
 .PARAMETER Username
-    Give the same -Username you passed to install-service.ps1, if you did. It points this at the
-    shared pid/log file install-service.ps1 set up for that account (its own per-user default
-    location isn't reachable from here), and needs the same elevated (Administrator) prompt to
-    be able to stop a process running as a different account.
-
-.PARAMETER TaskName
-    Scheduled task name to remove. Defaults to "MCP-GitLab" (or "MCP-GitLab (<Username>)" when
-    -Username is given), matching install-service.ps1's own default - pass the same -TaskName
-    you gave it if you overrode that there too.
+    Give the same -Username you passed to install-service.ps1, if you did. Needs the same elevated
+    (Administrator) prompt install-service.ps1 needed for it, to remove a task registered under a
+    different account. This script cannot reach that account's own Startup folder either (same
+    limitation as install-service.ps1) -- it prints where to remove
+    start-mcp-gitlab-at-logon.vbs from by hand.
 
 .PARAMETER Help
-    Show usage and exit. Takes no action. (Run with no arguments at all does the same - this
-    script never stops or removes anything without at least one argument telling it to.)
+    Show usage and exit. Takes no action.
 
 .EXAMPLE
-    .\uninstall-service.ps1 -TaskName "MCP-GitLab"
+    .\uninstall-service.ps1
 
 .EXAMPLE
+    # Run elevated: removes the task registered for svc_mcpgitlab.
     .\uninstall-service.ps1 -Username "CONTOSO\svc_mcpgitlab"
 #>
 [CmdletBinding()]
 param(
-    [string]$McpGitlabPath,
+    [string]$ProjectDir = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$Username,
-    [string]$TaskName,
     [Alias("h")]
     [switch]$Help,
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -44,48 +50,27 @@ param(
 
 function Show-Usage {
     Write-Host @"
-Usage: uninstall-service.ps1 [-McpGitlabPath <path>] [-Username <account>] [-TaskName <name>] [-Help]
+Usage: uninstall-service.ps1 [-ProjectDir <path>] [-Username <account>] [-Help]
 
-Stops mcp-gitlab and removes the scheduled task install-service.ps1 registered.
+Stops mcp-gitlab, removes the "MCP Servers\mcp-gitlab-server" scheduled task
+install-service.ps1 registered, and removes the Startup-folder auto-start entry.
 
-  -McpGitlabPath <path>  Path to the mcp-gitlab executable, used to stop it first (auto-detected
-                         if omitted). Not fatal if it can't be found: the task is still removed.
-  -Username <account>    Give the same -Username you passed to install-service.ps1, if you did.
-                         Needs an elevated (Administrator) prompt.
-  -TaskName <name>       Scheduled task name to remove (default: "MCP-GitLab", or
-                         "MCP-GitLab (<Username>)"); pass the same -TaskName you gave install if
-                         you overrode that there too.
-  -Help                  Show this message and exit; take no action.
+  -ProjectDir <path>   Repository root (default: two levels up from this script).
+  -Username <account>  Give the same -Username you passed to install-service.ps1, if you did.
+                       Needs an elevated (Administrator) prompt.
+  -Help                Show this message and exit; take no action.
 
 Examples:
-  .\uninstall-service.ps1 -TaskName "MCP-GitLab"
+  .\uninstall-service.ps1
   .\uninstall-service.ps1 -Username "CONTOSO\svc_mcpgitlab"
 
 Full parameter documentation: Get-Help .\uninstall-service.ps1 -Full
 "@
 }
 
-if ($Help -or $Extra -or $PSBoundParameters.Count -eq 0) {
+if ($Help -or $Extra) {
     Show-Usage
     exit 0
-}
-
-$ErrorActionPreference = "Stop"
-
-if (-not $TaskName) {
-    $TaskName = if ($Username) { "MCP-GitLab ($Username)" } else { "MCP-GitLab" }
-}
-
-if (-not $McpGitlabPath) {
-    $onPath = Get-Command "mcp-gitlab" -ErrorAction SilentlyContinue
-    if ($onPath) {
-        $McpGitlabPath = $onPath.Source
-    } else {
-        $venvExe = Join-Path $PSScriptRoot "..\..\.venv\Scripts\mcp-gitlab.exe"
-        # Not found is not fatal here (unlike install-service.ps1): the task still gets removed
-        # below either way, just without a clean "service stop" first if this doesn't resolve.
-        $McpGitlabPath = if (Test-Path $venvExe) { (Resolve-Path $venvExe).Path } else { "mcp-gitlab" }
-    }
 }
 
 if ($Username) {
@@ -93,25 +78,31 @@ if ($Username) {
     $isAdmin = ([Security.Principal.WindowsPrincipal]$currentIdentity).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin) {
-        Write-Error "-Username needs an elevated (Run as Administrator) PowerShell prompt: stopping a process running as a different account needs it."
+        Write-Error "-Username needs an elevated (Run as Administrator) PowerShell prompt: Windows requires that to remove a task registered under an account other than the one running this script."
         exit 1
     }
-    # Match install-service.ps1's shared location for this account instead of the per-user
-    # default (service.py), which isn't reachable from here.
-    $sharedStateDir = Join-Path $env:ProgramData "mcp-gitlab"
-    $env:MCP_GITLAB_PID_FILE = Join-Path $sharedStateDir "mcp-gitlab.pid"
-    $env:MCP_GITLAB_SERVICE_LOG_FILE = Join-Path $sharedStateDir "service.log"
 }
 
-try {
-    & $McpGitlabPath service stop
-} catch {
-    Write-Warning "Could not stop mcp-gitlab (it may not have been running): $_"
-}
+$TaskFolder = "MCP Servers"
+$TaskName = if ($Username) { "mcp-gitlab-server ($Username)" } else { "mcp-gitlab-server" }
+$TaskFullName = "$TaskFolder\$TaskName"
+$StartupVbsTarget = Join-Path ([Environment]::GetFolderPath("Startup")) "start-mcp-gitlab-at-logon.vbs"
+$StopScript = Join-Path $PSScriptRoot "stop-mcp-gitlab.ps1"
 
-if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
-    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-    Write-Host "Removed scheduled task '$TaskName'."
+if (Test-Path $StopScript) {
+    & $StopScript -ProjectDir $ProjectDir
 } else {
-    Write-Host "No scheduled task named '$TaskName' was found."
+    Write-Warning "stop-mcp-gitlab.ps1 not found at $StopScript -- skipping the stop step and going straight to removing the task."
+}
+
+schtasks /delete /tn $TaskFullName /f 2>&1 | Out-Null
+
+if ($Username) {
+    Write-Host "Removed scheduled task '$TaskFullName'. This account's own Startup folder still has"
+    Write-Host "start-mcp-gitlab-at-logon.vbs -- remove it by hand (this script cannot reach another"
+    Write-Host "account's profile):"
+    Write-Host "  Target (on $Username's machine, signed in as them): shell:startup"
+} else {
+    Remove-Item $StartupVbsTarget -ErrorAction SilentlyContinue
+    Write-Host "Removed scheduled task '$TaskFullName' and its Startup-folder auto-start entry."
 }
