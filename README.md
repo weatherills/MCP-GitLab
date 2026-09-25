@@ -61,6 +61,9 @@ Destructive actions also need `confirm: true` in the tool call: deleting or tran
 project, deleting a branch, all merged branches, an issue, a pipeline, or a runner, merging a
 merge request, and changing or removing a project member.
 
+For multiple users sharing one deployment, each with their own LLM access and their own GitLab
+PAT — optionally behind a single gateway URL — see [`LITELLM.md`](LITELLM.md).
+
 ## Deploying
 
 Beyond `127.0.0.1` the server must be reached over HTTPS, and it refuses to start otherwise.

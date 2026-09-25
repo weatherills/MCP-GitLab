@@ -154,7 +154,7 @@ Add to User / Workspace settings (`.vscode/settings.json` or global):
 }
 ```
 
-Note: VS Code native Streamable HTTP support requires 1.99+ / Copilot agent mode. If needed, proxy through LiteLLM (see repo docs).
+Note: VS Code native Streamable HTTP support requires 1.99+ / Copilot agent mode. If needed, proxy through LiteLLM (see `LITELLM.md`).
 
 For Copilot BYOK / agent host, verify:
 - `chat.agentHost.enabled`: true
@@ -261,3 +261,4 @@ $env:NODE_EXTRA_CA_CERTS = "C:\certs\mcp-gitlab-ca.crt"
 - Architecture / toolset specs: `CLAUDE.md`, `docs/prd/PRD-00-architecture.md`
 - Compose / Caddy deploy: `deploy/`
 - .env template: `.env.example`
+- Multi-user LLM + MCP gateway via LiteLLM: `LITELLM.md`
