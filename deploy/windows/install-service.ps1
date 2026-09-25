@@ -342,4 +342,5 @@ if (-not $Username) {
 }
 Write-Host "Check status any time with: schtasks /query /tn `"$TaskFullName`" /fo list /v"
 Write-Host "Stop it with: .\stop-mcp-gitlab.ps1 -ProjectDir `"$ProjectDir`""
-Write-Host "Remove entirely with: .\uninstall-service.ps1$(if ($Username) { " -Username `"$Username`"" } else { "" })"
+$UninstallUsernameArg = if ($Username) { " -Username `"$Username`"" } else { "" }
+Write-Host "Remove entirely with: .\uninstall-service.ps1$UninstallUsernameArg"
