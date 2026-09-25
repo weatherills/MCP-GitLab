@@ -26,6 +26,34 @@ cd deploy\windows
 Configure the server the same way as anywhere else: environment variables or a `.env` file next
 to the `mcp-gitlab` executable (see [`.env.example`](../../.env.example) at the repository root).
 
+### Installing on behalf of another account
+
+`-Username` registers the task to run as a different account than whoever runs the script — for
+when an administrator sets this up on behalf of a user or service account, rather than for
+themselves. No password is needed or stored: the task triggers on that account's own logon and
+runs inside their session, same as the default case, just for someone else. Registering a task to
+run as any account other than yours needs an elevated (Administrator) prompt either way — that's
+a Windows requirement, not something either script adds.
+
+```powershell
+.\install-service.ps1 -Username "CONTOSO\svc_mcpgitlab" `
+    -McpGitlabPath "C:\Users\svc_mcpgitlab\mcp-gitlab\.venv\Scripts\mcp-gitlab.exe"
+# ... later, from the same or another elevated prompt:
+.\uninstall-service.ps1 -Username "CONTOSO\svc_mcpgitlab"
+```
+
+One mechanical detail worth understanding before relying on this: `service.py` defaults the pid
+and log file to the *running* account's own home directory, which is exactly the thing an
+installer working on someone else's behalf can't see (and vice versa, for whoever later stops it
+from a different prompt). `-Username` works around this by pointing both accounts at
+`%ProgramData%\mcp-gitlab` instead — a shared, machine-wide location — and granting the named
+account write access to it with `icacls`. This is the newest, least-exercised corner of these
+scripts: it depends on Windows Task Scheduler resolving that machine-wide setting fresh each time
+the target account logs on, which is expected behavior but hasn't been verified end-to-end on a
+real Windows box by whoever wrote this. Confirm it in your environment (check that
+`%ProgramData%\mcp-gitlab\mcp-gitlab.pid` actually appears after that account's next logon) before
+depending on it.
+
 ## What they are not
 
 This is **not** a real Windows Service. The task runs `mcp-gitlab` as an ordinary background
