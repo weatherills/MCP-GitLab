@@ -31,9 +31,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import FrameType
-from typing import Literal, NoReturn
+from typing import NoReturn
 
-from mcp_gitlab.core.logging import configure_logging, log_event
+from mcp_gitlab.core.logging import configure_logging, log_event, log_settings_from_env
 
 logger = logging.getLogger("mcp_gitlab.standalone")
 
@@ -47,7 +47,6 @@ POLL_SECONDS = 0.2
 
 # Caddy terminates TLS, so the server behind it gets none of these.
 _TLS_SETTINGS = ("MCP_TLS_CERTFILE", "MCP_TLS_KEYFILE", "MCP_TLS_TERMINATED_UPSTREAM")
-_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR"})
 _LABEL = r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
 _HOST_NAME = re.compile(rf"{_LABEL}(?:\.{_LABEL})*")
 
@@ -317,7 +316,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.healthcheck:
         return healthcheck(env)
 
-    configure_logging(*_log_settings(env))
+    configure_logging(*log_settings_from_env(env))
     try:
         chosen = plan(env, CERTS_DIR)
     except StandaloneError as exc:
@@ -341,13 +340,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         **tls,
     )
     return supervise(chosen)
-
-
-def _log_settings(env: Mapping[str, str]) -> tuple[str, Literal["json", "text"]]:
-    """LOG_LEVEL and LOG_FORMAT as the server reads them; the server rejects invalid values."""
-    level = env.get("LOG_LEVEL", "").upper()
-    fmt: Literal["json", "text"] = "text" if env.get("LOG_FORMAT", "").lower() == "text" else "json"
-    return (level if level in _LOG_LEVELS else "INFO"), fmt
 
 
 if __name__ == "__main__":

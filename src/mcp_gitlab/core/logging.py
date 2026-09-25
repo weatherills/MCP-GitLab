@@ -12,6 +12,8 @@ from typing import Any, Literal
 
 REDACTED = "[REDACTED]"
 
+_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR"})
+
 _request_id: ContextVar[str | None] = ContextVar("mcp_gitlab_request_id", default=None)
 
 # Defense in depth: nothing should log a token in the first place.
@@ -47,6 +49,17 @@ def current_request_id() -> str | None:
 
 def log_event(logger: logging.Logger, level: int, event: str, **fields: Any) -> None:
     logger.log(level, event, extra={"fields": fields})
+
+
+def log_settings_from_env(env: Mapping[str, str]) -> tuple[str, Literal["json", "text"]]:
+    """LOG_LEVEL and LOG_FORMAT read directly from the environment.
+
+    For entrypoints that must log before (or without) building a full `Settings()` — this
+    server's own settings validation needs GitLab and MCP configuration unrelated to logging.
+    """
+    level = env.get("LOG_LEVEL", "").upper()
+    fmt: Literal["json", "text"] = "text" if env.get("LOG_FORMAT", "").lower() == "text" else "json"
+    return (level if level in _LOG_LEVELS else "INFO"), fmt
 
 
 def configure_logging(level: str = "INFO", fmt: Literal["json", "text"] = "json") -> None:

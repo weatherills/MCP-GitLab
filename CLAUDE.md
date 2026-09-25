@@ -58,7 +58,10 @@ app.py      composition root: wires everything; nothing imports it
 
 ```
 src/mcp_gitlab/
-  __main__.py       # `mcp-gitlab` entrypoint: settings, TLS policy, uvicorn
+  __main__.py       # `mcp-gitlab` entrypoint: settings, TLS policy, uvicorn; also `service`
+                    #   (start/stop/restart), which just calls service.py
+  service.py        # `mcp-gitlab service`: OS-independent detached-process start/stop/restart,
+                    #   for running outside Docker; deploy/windows/ wraps it for Windows users
   standalone.py     # the standalone image's entrypoint: runs Caddy and the server, health check
   app.py            # create_app(): registry → GitLab client → dispatcher → MCP server → ASGI app
   config.py         # Settings (PRD-00 §8) and the startup safety checks (§4.3, §7.4, §9)
@@ -89,7 +92,9 @@ src/mcp_gitlab/
     collaboration/  # PRD-08: gitlab_members, gitlab_users, gitlab_wikis, gitlab_webhooks,
                     #   gitlab_snippets
 tests/              # mirrors src/; toolsets/wire.py drives actions and asserts the GitLab request
-deploy/             # Caddyfile (built into the standalone image) and compose.yaml (the bundle)
+deploy/             # Caddyfile (built into the standalone image), compose.yaml (the bundle), and
+                    #   windows/ (courtesy scripts wrapping `mcp-gitlab service`, not the intended
+                    #   deployment)
 ```
 
 How one tool call flows: `transport/http.py` rejects a request without a PAT (`401`) →

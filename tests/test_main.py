@@ -1,10 +1,12 @@
 import logging
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from mcp_gitlab import __main__ as entrypoint
+from mcp_gitlab import service
 
 
 @pytest.fixture(autouse=True)
@@ -99,3 +101,54 @@ def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
         entrypoint.main(["--version"])
     assert excinfo.value.code == 0
     assert "mcp-gitlab" in capsys.readouterr().out
+
+
+@pytest.fixture
+def service_calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    calls: dict[str, Any] = {}
+    monkeypatch.setattr(
+        entrypoint.service, "start", lambda argv, **kw: calls.setdefault("start", (argv, kw))
+    )
+    monkeypatch.setattr(entrypoint.service, "stop", lambda **kw: calls.setdefault("stop", kw) or 0)
+    monkeypatch.setattr(
+        entrypoint.service, "restart", lambda argv, **kw: calls.setdefault("restart", (argv, kw))
+    )
+    return calls
+
+
+def test_service_start_spawns_the_server_module(service_calls: dict[str, Any]) -> None:
+    assert entrypoint.main(["service", "start"]) == 0
+    argv, kwargs = service_calls["start"]
+    assert argv[-1] == "serve"
+    assert isinstance(kwargs["pid_file"], Path)
+    assert isinstance(kwargs["log_file"], Path)
+
+
+def test_service_stop_and_restart_are_routed(service_calls: dict[str, Any]) -> None:
+    assert entrypoint.main(["service", "stop"]) == 0
+    assert "stop" in service_calls
+    assert entrypoint.main(["service", "restart"]) == 0
+    assert "restart" in service_calls
+
+
+def test_service_error_is_reported_without_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fails(**kwargs: Any) -> int:
+        raise service.ServiceError("mcp-gitlab is not running (no pid file).")
+
+    monkeypatch.setattr(entrypoint.service, "stop", fails)
+    assert entrypoint.main(["service", "stop"]) == 1
+    err = capsys.readouterr().err
+    assert "mcp-gitlab is not running" in err
+
+
+def test_service_error_is_logged_as_a_structured_event(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fails(argv: Any, **kwargs: Any) -> int:
+        raise service.ServiceError("mcp-gitlab is already running (pid 4242).")
+
+    monkeypatch.setattr(entrypoint.service, "start", fails)
+    assert entrypoint.main(["service", "start"]) == 1
+    assert "service_action_failed" in capsys.readouterr().out

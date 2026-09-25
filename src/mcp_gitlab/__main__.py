@@ -3,17 +3,16 @@
 import argparse
 import logging
 import os
-import subprocess
 import sys
 from collections.abc import Sequence
 
 import uvicorn
 from pydantic import ValidationError
 
-from mcp_gitlab import __version__
+from mcp_gitlab import __version__, service
 from mcp_gitlab.app import create_app
 from mcp_gitlab.config import ConfigurationError, Settings, check_transport_policy
-from mcp_gitlab.core.logging import configure_logging, log_event
+from mcp_gitlab.core.logging import configure_logging, log_event, log_settings_from_env
 
 logger = logging.getLogger("mcp_gitlab")
 
@@ -66,39 +65,44 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _service(action: str) -> int:
-    task = "MCP Servers\\mcp-gitlab-server"
-    if action == "start":
-        subprocess.run(["schtasks", "/run", "/tn", task], capture_output=True)
-        return 0
-    elif action == "stop":
-        subprocess.run(["schtasks", "/end", "/tn", task], capture_output=True)
-        pid_file = "data/mcp-gitlab.pid"
-        if os.path.exists(pid_file):
-            try:
-                with open(pid_file) as f:
-                    pid = int(f.read().strip())
-                os.kill(pid, 15)
-            except Exception:
-                pass
-        return 0
-    elif action == "restart":
-        _service("stop")
-        return _service("start")
-    else:
-        print(f"Unknown service action: {action}", file=sys.stderr)
-        return 2
+    """Run the server as a detached background process, tracked by a pid file.
+
+    OS-independent (POSIX and Windows alike): see service.py. This is an alternative to running
+    `mcp-gitlab` in the foreground, not a substitute for the standalone Docker image, which
+    remains the intended deployment (CLAUDE.md); `deploy/windows/` wraps this for Windows users
+    who want it to start automatically, as a courtesy.
+    """
+    configure_logging(*log_settings_from_env(os.environ))
+    server_argv = (sys.executable, "-m", "mcp_gitlab", "serve")
+    pid_file = service.default_pid_file()
+    log_file = service.default_log_file()
+    try:
+        if action == "start":
+            service.start(server_argv, pid_file=pid_file, log_file=log_file)
+        elif action == "stop":
+            service.stop(pid_file=pid_file)
+        else:
+            service.restart(server_argv, pid_file=pid_file, log_file=log_file)
+    except service.ServiceError as exc:
+        log_event(logger, logging.ERROR, "service_action_failed", action=action, detail=str(exc))
+        print(f"mcp-gitlab service {action}: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="mcp-gitlab", description="HTTPS GitLab MCP server.")
     sub = parser.add_subparsers(dest="command")
-    svc = sub.add_parser("service", help="Start/stop/restart the server service.")
+    svc = sub.add_parser(
+        "service", help="Run the server as a detached background process, tracked by a pid file."
+    )
     svc.add_argument("service_action", choices=["start", "stop", "restart"])
     sub.add_parser("serve", help="Run the MCP server (default).")
     parser.add_argument(
         "--insecure-dev",
         action="store_true",
-        help="Allow plaintext HTTP on a non-loopback address; local testing only (PRD-00 section 9).",
+        help="Allow plaintext HTTP on a non-loopback address; local testing only "
+        "(PRD-00 section 9).",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser.parse_args(argv)

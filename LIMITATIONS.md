@@ -196,6 +196,12 @@ Logging:
 
 ## Standalone image and deployment
 
+- **`mcp-gitlab service start|stop|restart` runs the server without Docker,** as a detached
+  background process tracked by a pid file (`service.py`). It's stdlib-only and OS-independent:
+  `os.kill` terminates the process on POSIX and Windows alike, so it needs no platform tool
+  (`systemd`, `schtasks`). `deploy/windows/` wraps it in a Windows Scheduled Task as a courtesy for
+  Windows users; that is not a real Windows Service (no Service Control Manager, no Session 0) and
+  is not the intended deployment, which stays Linux + Docker (below).
 - **Caddy and the MCP server share one container,** run by a Python entrypoint with no init
   system. On stop it waits up to 8 s for in-flight requests (Caddy's own grace period is 5 s), then
   kills what's left. (PRD-00 §9)

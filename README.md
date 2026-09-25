@@ -29,11 +29,17 @@ See [`CLAUDE.md`](CLAUDE.md) for the architecture, conventions, and how to add a
 
 ```
 pip install .
-mcp-gitlab        # serves http://127.0.0.1:8080/mcp
+mcp-gitlab        # serves http://127.0.0.1:8080/mcp, in the foreground
 ```
 
 Configure it with environment variables or a `.env` file — see [`.env.example`](.env.example).
 For a self-hosted instance set `GITLAB_BASE_URL=https://gitlab.example.com/api/v4`.
+
+`mcp-gitlab service start|stop|restart` instead runs it as a detached background process, tracked
+by a pid file (`~/.mcp-gitlab/mcp-gitlab.pid` by default; override with `MCP_GITLAB_PID_FILE`).
+It's plain Python (no `systemd`, no `schtasks`), so it works the same on Linux, macOS, and Windows.
+The Docker deployment below remains the intended way to run this in production; `service` is for
+running `mcp-gitlab` directly without Docker.
 
 ## Connecting a client
 
@@ -135,6 +141,15 @@ options to `docker run`.
 
 CI builds both images, checks that they report healthy, and runs the Compose bundle in both TLS
 modes before it publishes.
+
+### Windows (courtesy scripts)
+
+Linux + Docker (above) is the intended, supported deployment. [`deploy/windows/`](deploy/windows/)
+has two PowerShell scripts that wrap `mcp-gitlab service start|stop` in a Windows Scheduled Task,
+as an example and a courtesy for Windows users who want to run `mcp-gitlab` directly (no
+Docker/WSL) and have it come back after a logon — not a substitute for the Docker deployment, and
+not a real Windows Service (see that directory's README for what that distinction means in
+practice).
 
 ## Development
 
