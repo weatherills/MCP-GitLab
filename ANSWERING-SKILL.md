@@ -4,6 +4,20 @@ Hints for an LLM calling this server's MCP tools. Not implementation guidance (t
 [`CLAUDE.md`](CLAUDE.md) and [`LIMITATIONS.md`](LIMITATIONS.md)) — this is "how do I get GitLab to
 do the thing" from the caller's side of the wire.
 
+## Authentication: not your problem
+
+No tool takes a token, PAT, credential, or "authenticate first" action, and none ever will — this
+is by design, not an oversight. The MCP *client* (the host application you're running inside)
+attaches the caller's GitLab Personal Access Token to the underlying HTTPS request as an
+`Authorization: Bearer <token>` header once, before your tool call ever runs; the server reads it
+off that request and uses it only for the GitLab calls made while serving that one call. You never
+see the token, never pass it as a parameter, and never need to ask the user for it or check that
+"login" happened — there is no separate login step to perform. If a call fails with
+`authentication_required` or `gitlab_unauthorized`, that means the token attached at the transport
+level is missing, invalid, or lacks the scope for that action — it's not something you can fix by
+adding a field to the call; tell the user their PAT needs attention (or more scope), rather than
+retrying with some invented auth parameter.
+
 ## The shape of every call
 
 There are 26 tools, one per GitLab domain, each named `gitlab_<domain>` (e.g. `gitlab_issues`,
