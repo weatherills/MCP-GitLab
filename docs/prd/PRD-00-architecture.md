@@ -12,6 +12,11 @@
 > the server in one container, and §8 lists its two settings. Host names now match without
 > regard to case (§4.3), and `MCP_MAX_REQUEST_BYTES` caps each request body (§8, §10). With the
 > tools PRD-01 to PRD-08 added, §6's figure for the size of `tools/list` is updated.
+> **2026-09-25:** §9 adds `mcp-gitlab service start|stop|restart`, a stdlib-only background-process
+> manager for running without Docker (`os.kill` terminates a process the same way on POSIX and
+> Windows, so no platform-specific service manager is needed), and notes `deploy/windows/`'s
+> Scheduled-Task wrapper scripts for it — a courtesy for Windows users, not a second supported
+> deployment.
 
 ## 1. Overview
 
@@ -258,6 +263,8 @@ but it is not a v1 requirement.
 | `MCP_PUBLIC_HOST` | Standalone image only | `localhost`; the published image presets the owner's host | Host name Caddy serves; the server's allowed hosts are derived from it (§9) |
 | `MCP_HTTPS_PORT` | Standalone image only | `8443` | Port Caddy listens on inside the container (§9) |
 | `LOG_LEVEL` / `LOG_FORMAT` | No | `INFO` / `json` | Logging (§11) |
+| `MCP_GITLAB_PID_FILE` | `service` subcommand only | `~/.mcp-gitlab/mcp-gitlab.pid` | Where `mcp-gitlab service` tracks the background process (§9) |
+| `MCP_GITLAB_SERVICE_LOG_FILE` | `service` subcommand only | `~/.mcp-gitlab/service.log` | Where `mcp-gitlab service start` sends the server's output (§9) |
 
 There is deliberately no `GITLAB_TOKEN` (§7.2).
 
@@ -286,6 +293,14 @@ entirely (§11). CI publishes the image to GHCR pre-configured for the owner's d
 `MCP_PUBLIC_HOST=mantle.scipai.sandbox.sciencecloud.nasa.gov`), and `deploy/compose.yaml` runs
 it. `--target server` still builds the server alone, for a proxy or load balancer the operator
 provides.
+
+**Running without Docker.** `mcp-gitlab service start|stop|restart` runs the server as a detached
+background process outside the standalone image, tracked by a pid file (`service.py`); it needs no
+platform-specific service manager, since `os.kill` terminates a process the same way on POSIX and
+Windows. `deploy/windows/` wraps it in a Windows Scheduled Task as a courtesy for Windows users who
+want it to start automatically without Docker — not a substitute for the standalone image above,
+which remains the intended deployment, and not a real Windows Service (no Service Control Manager,
+no Session 0).
 
 ## 10. Error Handling, Retries & Pagination (shared conventions)
 

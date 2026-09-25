@@ -197,8 +197,12 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ruff check . && mypy src && pytest
 mcp-gitlab                 # http://127.0.0.1:8080/mcp; --insecure-dev allows plaintext off loopback
+mcp-gitlab service start   # the same, detached in the background (stop|restart too; see service.py)
 cd deploy && docker compose up -d   # the standalone image: https://$MCP_PUBLIC_HOST/mcp
 ```
+
+`deploy/windows/` wraps `mcp-gitlab service` in a Windows Scheduled Task, as a courtesy for Windows
+users — not a second supported deployment; the standalone image above is still the intended one.
 
 No `.env` is needed for the test suite. For manual runs, copy `.env.example` to `.env`. Clients send
 `Authorization: Bearer <PAT>` on every request.
