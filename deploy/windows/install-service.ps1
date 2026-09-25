@@ -17,10 +17,12 @@
     intentionally doesn't add either as a project dependency.
 
 .PARAMETER McpGitlabPath
-    Path to the mcp-gitlab executable. Defaults to "mcp-gitlab", resolved from PATH (works once
-    you've `pip install`-ed this package into an active environment) - resolved for whichever
-    account the task runs as, so an absolute path is safer than relying on PATH when -Username
-    names an account other than yours.
+    Path to the mcp-gitlab executable. If omitted, this looks first on PATH, then for a venv at
+    the repository's own conventional location relative to this script
+    (..\..\.venv\Scripts\mcp-gitlab.exe - i.e. a `.venv` at the repository root, created per
+    CLAUDE.md's "Running things"). Neither may be right for -Username's account (PATH reflects
+    whoever runs this script, not the account the task will run as, and a relative guess can be
+    wrong), so pass this explicitly whenever you're not sure it'll resolve for that account.
 
 .PARAMETER Username
     Register the task to run as this account instead of yours - for when the person installing
@@ -61,13 +63,17 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$McpGitlabPath = "mcp-gitlab",
+    [string]$McpGitlabPath,
     [string]$Username,
     [switch]$AtStartup,
     [string]$TaskName
 )
 
 $ErrorActionPreference = "Stop"
+
+$currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$isAdmin = ([Security.Principal.WindowsPrincipal]$currentIdentity).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
 
 if ($AtStartup -and $Username) {
     Write-Error "-Username and -AtStartup are mutually exclusive: -AtStartup already runs as SYSTEM, independent of any user."
@@ -76,15 +82,27 @@ if ($AtStartup -and $Username) {
 if (-not $TaskName) {
     $TaskName = if ($Username) { "MCP-GitLab ($Username)" } else { "MCP-GitLab" }
 }
+if (($AtStartup -or $Username) -and -not $isAdmin) {
+    Write-Error "-AtStartup and -Username both need an elevated (Run as Administrator) PowerShell prompt: Windows requires that to register a task under an account other than the one running this script."
+    exit 1
+}
 
-if ($AtStartup -or $Username) {
-    $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $isAdmin = ([Security.Principal.WindowsPrincipal]$currentIdentity).IsInRole(
-        [Security.Principal.WindowsBuiltInRole]::Administrator)
-    if (-not $isAdmin) {
-        Write-Error "-AtStartup and -Username both need an elevated (Run as Administrator) PowerShell prompt: Windows requires that to register a task under an account other than the one running this script."
-        exit 1
+if (-not $McpGitlabPath) {
+    # Not on PATH is common: a venv's Scripts folder is only on PATH inside an activated venv,
+    # and Task Scheduler / a fresh elevated prompt starts with neither.
+    $onPath = Get-Command "mcp-gitlab" -ErrorAction SilentlyContinue
+    if ($onPath) {
+        $McpGitlabPath = $onPath.Source
+    } else {
+        $venvExe = Join-Path $PSScriptRoot "..\..\.venv\Scripts\mcp-gitlab.exe"
+        if (Test-Path $venvExe) {
+            $McpGitlabPath = (Resolve-Path $venvExe).Path
+        } else {
+            Write-Error "Could not find mcp-gitlab: it isn't on PATH, and $venvExe doesn't exist. Pass -McpGitlabPath explicitly (your venv's Scripts\mcp-gitlab.exe)."
+            exit 1
+        }
     }
+    Write-Host "Using mcp-gitlab at: $McpGitlabPath"
 }
 
 if ($Username) {
@@ -118,7 +136,11 @@ if ($AtStartup) {
     $principal = New-ScheduledTaskPrincipal -UserId $Username -LogonType Interactive
 } else {
     $trigger = New-ScheduledTaskTrigger -AtLogOn
-    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive
+    # $currentIdentity.Name (not $env:USERDOMAIN\$env:USERNAME): it's read from this process's
+    # own security token, so Windows already knows it maps to a real SID. The env-var version can
+    # fail that lookup for some account types (e.g. a Microsoft Account) with "No mapping between
+    # account names and security IDs was done".
+    $principal = New-ScheduledTaskPrincipal -UserId $currentIdentity.Name -LogonType Interactive
 }
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 

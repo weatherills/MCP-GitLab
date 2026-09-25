@@ -5,7 +5,10 @@
 
 .PARAMETER McpGitlabPath
     Path to the mcp-gitlab executable, used to stop the running instance before the task that
-    would otherwise restart it is removed. Defaults to "mcp-gitlab", resolved from PATH.
+    would otherwise restart it is removed. If omitted, this looks first on PATH, then for a venv
+    at the repository's own conventional location relative to this script
+    (..\..\.venv\Scripts\mcp-gitlab.exe). If neither resolves, the task is still removed; only
+    the "stop the running process" step is skipped, with a warning.
 
 .PARAMETER Username
     Give the same -Username you passed to install-service.ps1, if you did. It points this at the
@@ -26,7 +29,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$McpGitlabPath = "mcp-gitlab",
+    [string]$McpGitlabPath,
     [string]$Username,
     [string]$TaskName
 )
@@ -35,6 +38,18 @@ $ErrorActionPreference = "Stop"
 
 if (-not $TaskName) {
     $TaskName = if ($Username) { "MCP-GitLab ($Username)" } else { "MCP-GitLab" }
+}
+
+if (-not $McpGitlabPath) {
+    $onPath = Get-Command "mcp-gitlab" -ErrorAction SilentlyContinue
+    if ($onPath) {
+        $McpGitlabPath = $onPath.Source
+    } else {
+        $venvExe = Join-Path $PSScriptRoot "..\..\.venv\Scripts\mcp-gitlab.exe"
+        # Not found is not fatal here (unlike install-service.ps1): the task still gets removed
+        # below either way, just without a clean "service stop" first if this doesn't resolve.
+        $McpGitlabPath = if (Test-Path $venvExe) { (Resolve-Path $venvExe).Path } else { "mcp-gitlab" }
+    }
 }
 
 if ($Username) {
