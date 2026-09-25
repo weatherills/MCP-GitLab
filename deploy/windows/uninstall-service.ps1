@@ -21,8 +21,12 @@
     -Username is given), matching install-service.ps1's own default - pass the same -TaskName
     you gave it if you overrode that there too.
 
+.PARAMETER Help
+    Show usage and exit. Takes no action. (Run with no arguments at all does the same - this
+    script never stops or removes anything without at least one argument telling it to.)
+
 .EXAMPLE
-    .\uninstall-service.ps1
+    .\uninstall-service.ps1 -TaskName "MCP-GitLab"
 
 .EXAMPLE
     .\uninstall-service.ps1 -Username "CONTOSO\svc_mcpgitlab"
@@ -31,8 +35,40 @@
 param(
     [string]$McpGitlabPath,
     [string]$Username,
-    [string]$TaskName
+    [string]$TaskName,
+    [Alias("h")]
+    [switch]$Help,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Extra
 )
+
+function Show-Usage {
+    Write-Host @"
+Usage: uninstall-service.ps1 [-McpGitlabPath <path>] [-Username <account>] [-TaskName <name>] [-Help]
+
+Stops mcp-gitlab and removes the scheduled task install-service.ps1 registered.
+
+  -McpGitlabPath <path>  Path to the mcp-gitlab executable, used to stop it first (auto-detected
+                         if omitted). Not fatal if it can't be found: the task is still removed.
+  -Username <account>    Give the same -Username you passed to install-service.ps1, if you did.
+                         Needs an elevated (Administrator) prompt.
+  -TaskName <name>       Scheduled task name to remove (default: "MCP-GitLab", or
+                         "MCP-GitLab (<Username>)"); pass the same -TaskName you gave install if
+                         you overrode that there too.
+  -Help                  Show this message and exit; take no action.
+
+Examples:
+  .\uninstall-service.ps1 -TaskName "MCP-GitLab"
+  .\uninstall-service.ps1 -Username "CONTOSO\svc_mcpgitlab"
+
+Full parameter documentation: Get-Help .\uninstall-service.ps1 -Full
+"@
+}
+
+if ($Help -or $Extra -or $PSBoundParameters.Count -eq 0) {
+    Show-Usage
+    exit 0
+}
 
 $ErrorActionPreference = "Stop"
 

@@ -18,10 +18,14 @@ rest of the codebase — read them before running them, as with any script from 
 
 ```powershell
 cd deploy\windows
-.\install-service.ps1
+.\install-service.ps1 -TaskName "MCP-GitLab"
 # ...
-.\uninstall-service.ps1
+.\uninstall-service.ps1 -TaskName "MCP-GitLab"
 ```
+
+Both take `-Help` (or run with no arguments at all) to print usage and exit without taking any
+action — neither script installs, stops, or removes anything unless you pass at least one
+argument telling it to.
 
 Configure the server the same way as anywhere else: environment variables or a `.env` file next
 to the `mcp-gitlab` executable (see [`.env.example`](../../.env.example) at the repository root).

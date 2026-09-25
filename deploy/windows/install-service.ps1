@@ -50,8 +50,12 @@
     given and this isn't set explicitly - so installing for several accounts on one machine
     doesn't silently overwrite an earlier registration.
 
+.PARAMETER Help
+    Show usage and exit. Takes no action. (Run with no arguments at all does the same - this
+    script never installs anything without at least one argument telling it to.)
+
 .EXAMPLE
-    .\install-service.ps1
+    .\install-service.ps1 -TaskName "MCP-GitLab"
 
 .EXAMPLE
     .\install-service.ps1 -McpGitlabPath "C:\path\to\venv\Scripts\mcp-gitlab.exe" -AtStartup
@@ -66,8 +70,42 @@ param(
     [string]$McpGitlabPath,
     [string]$Username,
     [switch]$AtStartup,
-    [string]$TaskName
+    [string]$TaskName,
+    [Alias("h")]
+    [switch]$Help,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Extra
 )
+
+function Show-Usage {
+    Write-Host @"
+Usage: install-service.ps1 [-McpGitlabPath <path>] [-Username <account>] [-AtStartup] [-TaskName <name>] [-Help]
+
+Registers a Windows Scheduled Task that runs 'mcp-gitlab service start' automatically at your
+next logon (or at system startup, as SYSTEM, with -AtStartup).
+
+  -McpGitlabPath <path>  Path to the mcp-gitlab executable (auto-detected if omitted: PATH,
+                         then ..\..\.venv\Scripts\mcp-gitlab.exe relative to this script).
+  -Username <account>    Register the task for this account instead of yours. No password
+                         needed, but needs an elevated (Administrator) prompt.
+  -AtStartup             Trigger at system startup instead of logon, running as SYSTEM. Needs
+                         an elevated (Administrator) prompt. Mutually exclusive with -Username.
+  -TaskName <name>       Scheduled task name (default: "MCP-GitLab", or "MCP-GitLab (<Username>)").
+  -Help                  Show this message and exit; take no action.
+
+Examples:
+  .\install-service.ps1 -TaskName "MCP-GitLab"
+  .\install-service.ps1 -AtStartup
+  .\install-service.ps1 -Username "CONTOSO\svc_mcpgitlab" -McpGitlabPath "C:\...\mcp-gitlab.exe"
+
+Full parameter documentation: Get-Help .\install-service.ps1 -Full
+"@
+}
+
+if ($Help -or $Extra -or $PSBoundParameters.Count -eq 0) {
+    Show-Usage
+    exit 0
+}
 
 $ErrorActionPreference = "Stop"
 
